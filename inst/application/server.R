@@ -55,7 +55,8 @@ function(input, output, session) {
     print(.libPaths())
 
     library(facetsSuite, lib.loc = values$config$facets_suite_lib)
-    
+    print("Past this point.")
+
     shinyjs::html("element_facets_qc_version1", paste0('facets qc version: ', facets_qc_version()))
     shinyjs::html("element_facets_qc_version2", paste0('facets qc version: ', facets_qc_version()))
     

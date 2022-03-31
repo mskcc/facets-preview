@@ -73,10 +73,11 @@ function(input, output, session) {
     library(parallel, lib.loc = values$config$facets_suite_lib)
     library(configr, lib.loc = values$config$facets_suite_lib)
     library(R.utils, lib.loc = values$config$facets_suite_lib)
+    library(facetsPreview, lib.loc = values$config$facets_suite_lib
 
     #library(facetsSuite, lib.loc = "/home/pricea2/R/x86_64-pc-linux-gnu-library/4.1/")
     print("Past this point.")
-    source("../../R/global.R", local = TRUE)
+    #source("../../R/global.R", local = TRUE)
     print(getwd())
 
     shinyjs::html("element_facets_qc_version1", paste0('facets qc version: ', facets_qc_version()))

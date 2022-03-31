@@ -578,6 +578,7 @@ launch_application_browser <- function() {
   require(gridExtra)
   require(plyr)
   require(data.table)
+  require(dplyr)
 
   shiny::runApp(appDir = system.file("application", package = "facetsPreview"), launch.browser = TRUE)
 }

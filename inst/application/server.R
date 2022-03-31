@@ -50,7 +50,9 @@ function(input, output, session) {
     
     source(values$config$facets_qc_script)
     
+    print(c("username is ",unname(Sys.info()["user"])))
     print(c("facetsSuite lib is set at ", values$config$facets_suite_lib))
+    print(c("libpaths is ",.libPaths())
     library(facetsSuite, lib.loc = values$config$facets_suite_lib)
     
     shinyjs::html("element_facets_qc_version1", paste0('facets qc version: ', facets_qc_version()))

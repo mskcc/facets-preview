@@ -571,6 +571,14 @@ launch_application <- function() {
 #' @return launches app
 #' @export launch_application_browser
 launch_application_browser <- function() {
+  require(bit64)
+  require(Cairo)
+  require(ggplot2)
+  require(grid)
+  require(gridExtra)
+  require(plyr)
+  require(data.table)
+
   shiny::runApp(appDir = system.file("application", package = "facetsPreview"), launch.browser = TRUE)
 }
 

@@ -73,6 +73,7 @@ function(input, output, session) {
     library(parallel, lib.loc = values$config$facets_suite_lib)
     library(configr, lib.loc = values$config$facets_suite_lib)
     library(R.utils, lib.loc = values$config$facets_suite_lib)
+    source("../R/global.R")
 
     #library(facetsSuite, lib.loc = "/home/pricea2/R/x86_64-pc-linux-gnu-library/4.1/")
     print("Past this point.")

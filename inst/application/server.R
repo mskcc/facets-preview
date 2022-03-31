@@ -54,7 +54,8 @@ function(input, output, session) {
     print(c("facetsSuite lib is set at ", values$config$facets_suite_lib))
     print(.libPaths())
 
-    library(facetsSuite, lib.loc = values$config$facets_suite_lib)
+    #library(facetsSuite, lib.loc = values$config$facets_suite_lib)
+    library(facetsSuite, lib.loc = "/home/pricea2/R/x86_64-pc-linux-gnu-library/4.1/")
     print("Past this point.")
 
     shinyjs::html("element_facets_qc_version1", paste0('facets qc version: ', facets_qc_version()))

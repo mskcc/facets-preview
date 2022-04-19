@@ -639,6 +639,7 @@ function(input, output, session) {
                     options = list(columnDefs = list(list(className = 'dt-center')),
                                    pageLength = 50),
                     rownames=FALSE)
+      print("Made it past DT:datatable")
     })
 
     output$editableSegmentsTable <- rhandsontable::renderRHandsontable({

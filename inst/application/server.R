@@ -632,6 +632,8 @@ function(input, output, session) {
         showModal(modalDialog( title = "CNCF file missing", "Invalid CNCF file" ))
         return()
       }
+      print(head(cncf_data))
+      print(summary(cncf_data))
       DT::datatable(cncf_data,
                     selection=list(mode='single'),
                     options = list(columnDefs = list(list(className = 'dt-center')),

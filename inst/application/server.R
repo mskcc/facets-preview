@@ -636,8 +636,8 @@ function(input, output, session) {
       print(summary(cncf_data))
       DT::datatable(cncf_data,
                     selection=list(mode='single'),
-                    options = list(columnDefs = list(list(className = 'dt-center')),
-                                   pageLength = 50),
+                    #options = list(columnDefs = list(list(className = 'dt-center')),
+                    #               pageLength = 50),
                     rownames=FALSE)
       print("Made it past DT:datatable")
     })

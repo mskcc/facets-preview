@@ -896,7 +896,7 @@ function(input, output, session) {
                            '--genome hg19 --directory {refit_dir} '))
 
     write(refit_cmd, refit_cmd_file)
-    system(paste0("./{refit_cmd_file} > {refit_log_file}"), intern = TRUE)
+    system(paste0("./",refit_cmd_file, " > ", refit_log_file), intern = TRUE)
     
     showModal(modalDialog(
       title = "Job submitted!", 

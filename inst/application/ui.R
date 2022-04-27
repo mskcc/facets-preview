@@ -105,10 +105,6 @@ ui <-
                         ),
                         wellPanel(
                           h4(strong("Generate a new fit:")),
-                          shinyjs::hidden(div(id="div_watcherSuccess",
-                                              HTML(" Watcher status: <i class=\"fa fa-check\" aria-hidden=\"true\"></i>"), style="color: green; padding-bottom: 10px")),
-                          shinyjs::hidden(div(id="div_watcherFail",
-                                              HTML(" Watcher status: <i class=\"fa fa-times\" aria-hidden=\"true\"></i>"), style="color: red; padding-bottom: 10px")),
                           column(12,
                                  textInput("textInput_newDipLogR", value = "","dipLogR ")),
                           column(6, 

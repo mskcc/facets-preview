@@ -839,7 +839,7 @@ function(input, output, session) {
     name_tag = glue(name_tag)
     refit_name <- glue('/refit_{name_tag}')
     
-    cmd_script_pfx = paste0(values$config$watcher_dir, "/refit_jobs/facets_refit_cmd_")
+    cmd_script_pfx = paste0(values$config$refits_dir, "/facets_refit_cmd_")
     
     refit_dir <- paste0(run_path, refit_name)
     facets_lib_path = supported_facets_versions[version==facets_version_to_use]$lib_path
@@ -860,6 +860,7 @@ function(input, output, session) {
     }
     
     refit_cmd_file <- glue("{cmd_script_pfx}{sample_id}_{name_tag}.sh")
+    refit_log_file = paste0("{cmd_script_pfx}{sample_id}_{name_tag}.log")
     if (file.size(counts_file_name) > 5e7) {
       refit_cmd_file <- glue("{cmd_script_pfx}{sample_id}_{name_tag}.bsub.sh")  
     }
@@ -895,6 +896,7 @@ function(input, output, session) {
                            '--genome hg19 --directory {refit_dir} '))
 
     write(refit_cmd, refit_cmd_file)
+    system("./{refit_cmd_file} > {refit_log_file}", intern = TRUE)
     
     showModal(modalDialog(
       title = "Job submitted!", 

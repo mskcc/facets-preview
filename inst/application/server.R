@@ -486,6 +486,12 @@ function(input, output, session) {
                     escape=F)
     })
     
+    print(selected_run)
+    print(selected_run %>% 
+                      select(-ends_with("note"),
+                             -ends_with("pass")) %>%
+                      t)
+
     output$datatable_QC_metrics <- DT::renderDataTable({
       DT::datatable(selected_run %>% 
                       select(-ends_with("note"),

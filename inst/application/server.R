@@ -491,7 +491,7 @@ function(input, output, session) {
                       select(-ends_with("note"),
                              -ends_with("pass")) %>%
                       t,
-                    options = list(columnDefs = list(list(className = 'dt-center')),
+                    options = list(columnDefs = list(list(className = 'dt-center', targets = 5)),
                                    pageLength = 200, dom = 't', rownames= FALSE),
                     colnames = c(""))
     })

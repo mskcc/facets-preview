@@ -225,7 +225,10 @@ function(input, output, session) {
        updateTabsetPanel(session, "reviewTabsetPanel", selected = "png_image_tabset")
      } else if (grepl('P\\-\\d{7}.*', selected_sample)) {
        patient_id = gsub("\\-T.*", "", selected_sample)
-       browseURL(paste0('https://cbioportal.mskcc.org/patient?studyId=mskimpact&caseId=', patient_id))
+       print(paste("patient id is ", patient_id))
+       #browseURL(paste0('https://cbioportal.mskcc.org/patient?studyId=mskimpact&caseId=', patient_id))
+       showModal(modalDialog( title = "CBIO", renderUI({a("cbio", paste0('https://cbioportal.mskcc.org/patient?studyId=mskimpact&caseId=', patient_id),target="_blank")})))
+       #a("cbio", paste0('https://cbioportal.mskcc.org/patient?studyId=mskimpact&caseId=', patient_id),target="_blank")
        updateTabsetPanel(session, "reviewTabsetPanel", selected = "png_image_tabset")
      } else{
        showModal(modalDialog( title = "Not a valid DMP ID", "Cannot open this sample in cBioPortal"))

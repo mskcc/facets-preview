@@ -211,10 +211,12 @@ function(input, output, session) {
 
   observeEvent(input$reviewTabsetPanel, {
    if (input$reviewTabsetPanel == "cBioPortal") {
-     if (!verify_sshfs_mount(values$config$watcher_dir)) { return (NULL) }
+     #if (!verify_sshfs_mount(values$config$watcher_dir)) { return (NULL) }
      selected_sample = paste(unlist(values$manifest_metadata[input$datatable_samples_rows_selected,1]), collapse="")
      dmp_id = (values$manifest_metadata %>% filter(sample_id == selected_sample))$dmp_id[1]
 
+    print(head(values$manifest_metadata))
+    print(paste("sample id ",sample_id))
     print(paste("DMP ID IS ", dmp_id))
     print(paste("selected_sample ID IS ", selected_sample))
     print(paste("grepl is ", grepl('P\\-\\d{7}.*', selected_sample)))

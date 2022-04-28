@@ -633,20 +633,21 @@ function(input, output, session) {
     
     output$datatable_cncf <- DT::renderDataTable({
       cncf_data <-
-        get_cncf_table(input$radioGroupButton_fitType, selected_run)
+        get_cncf_table(input$radioGroupButton_fitType, selected_run) %>%
+        data.frame()
       if ( dim(cncf_data)[1] == 0 ){
         showModal(modalDialog( title = "CNCF file missing", "Invalid CNCF file" ))
         return()
       }
-      print(head(cncf_data))
-      print(summary(cncf_data))
+
       DT::datatable(cncf_data,
                     selection=list(mode='single'),
                     options = list(columnDefs = list(list(className = 'dt-center', targets = "_all")),
                                    pageLength = 50),
                     rownames=FALSE)
-      print("Made it past DT:datatable")
+
     })
+    print("Made it past DT:datatable")
 
     output$editableSegmentsTable <- rhandsontable::renderRHandsontable({
       cncf_data <-

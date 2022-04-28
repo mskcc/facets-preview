@@ -216,7 +216,6 @@ function(input, output, session) {
      dmp_id = (values$manifest_metadata %>% filter(sample_id == selected_sample))$dmp_id[1]
 
     print(head(values$manifest_metadata))
-    print(paste("sample id ",sample_id))
     print(paste("DMP ID IS ", dmp_id))
     print(paste("selected_sample ID IS ", selected_sample))
     print(paste("grepl is ", grepl('P\\-\\d{7}.*', selected_sample)))

@@ -77,9 +77,7 @@ function(input, output, session) {
     library(DT, lib.loc = values$config$facets_suite_lib)
 
     #library(facetsSuite, lib.loc = "/home/pricea2/R/x86_64-pc-linux-gnu-library/4.1/")
-    print("Past this point.")
     #source("../../R/global.R", local = TRUE)
-    print(getwd())
 
     shinyjs::html("element_facets_qc_version1", paste0('facets qc version: ', facets_qc_version()))
     shinyjs::html("element_facets_qc_version2", paste0('facets qc version: ', facets_qc_version()))
@@ -216,6 +214,10 @@ function(input, output, session) {
      if (!verify_sshfs_mount(values$config$watcher_dir)) { return (NULL) }
      selected_sample = paste(unlist(values$manifest_metadata[input$datatable_samples_rows_selected,1]), collapse="")
      dmp_id = (values$manifest_metadata %>% filter(sample_id == selected_sample))$dmp_id[1]
+
+    print(paste("DMP ID IS ", dmp_id))
+    print(paste("selected_sample ID IS ", selected_sample))
+    print(paste("grepl is ", grepl('P\\-\\d{7}.*', selected_sample)))
 
      if (!is.null(dmp_id) && !is.na(dmp_id)) {
        browseURL(paste0('https://cbioportal.mskcc.org/patient?studyId=mskimpact&caseId=', dmp_id))
@@ -485,12 +487,6 @@ function(input, output, session) {
                     colnames = c("Filter" , "Passed?", "Note"), 
                     escape=F)
     })
-    
-    print(selected_run)
-    print(selected_run %>% 
-                      select(-ends_with("note"),
-                             -ends_with("pass")) %>%
-                      t)
 
     output$datatable_QC_metrics <- DT::renderDataTable({
       DT::datatable(selected_run %>% 
@@ -647,7 +643,6 @@ function(input, output, session) {
                     rownames=FALSE)
 
     })
-    print("Made it past DT:datatable")
 
     output$editableSegmentsTable <- rhandsontable::renderRHandsontable({
       cncf_data <-

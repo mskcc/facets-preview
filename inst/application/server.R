@@ -904,6 +904,7 @@ function(input, output, session) {
     write(refit_cmd, refit_cmd_file)
     #system(paste0(refit_cmd, " 2> ", refit_log_file), intern = TRUE)
     system(refit_cmd, intern = TRUE)
+    system(paste0("chmod -R 775 ", refit_dir))
 
 
     showModal(modalDialog(

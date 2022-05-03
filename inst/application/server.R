@@ -902,7 +902,7 @@ function(input, output, session) {
                            '--genome hg19 --directory {refit_dir} '))
 
     write(refit_cmd, refit_cmd_file)
-    system("chmod 775 ", refit_cmd_file, intern = TRUE)
+    system(paste("chmod 775 ", refit_cmd_file), intern = TRUE)
 
     showModal(modalDialog(
       title = "Job submitted!", 
@@ -910,7 +910,7 @@ function(input, output, session) {
              "Check back in a few minutes. Logs: ", refit_cmd_file, ".*")
     ))
     values$submitted_refit <- c(values$submitted_refit, refit_dir)
-    
+
     system(refit_cmd, intern = TRUE)
   })
 }

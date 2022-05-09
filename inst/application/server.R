@@ -324,7 +324,7 @@ function(input, output, session) {
                                'Review Status', 'Reviewed Fit', 'Reviewed Fit QC', 'purity run only?', 
                                'edited.cncf.txt?', 'Reviewer purity', 'Date Reviewed'),
                   options = list(pageLength = 20, columnDefs = list(list(className = 'dt-center', targets = 0:9))),
-                  rownames=FALSE, escape = F)
+                  rownames=FALSE, escape = F, row.names = F)
   })
 
   # Downloadable csv of selected dataset ----

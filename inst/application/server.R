@@ -313,20 +313,40 @@ function(input, output, session) {
     gicon <- function(x) as.character(icon(x, lib = "glyphicon"))
     print("VALUES MANIFEST DATA")
     print(values$manifest_metadata)
-    DT::datatable(values$manifest_metadata %>%
-                    dplyr::select(-path, -facets_suite_version, -facets_qc_version, -dmp_id) %>%
-                    mutate(default_fit_qc = ifelse(default_fit_qc, gicon('ok'), gicon('remove'))) %>%
-                    mutate(reviewed_fit_facets_qc = 
-                             ifelse(review_status == 'Not reviewed', '',
-                                    ifelse(reviewed_fit_facets_qc, gicon('ok'), gicon('remove')))) %>%
-                    mutate(reviewed_fit_use_purity = ifelse(reviewed_fit_use_purity, gicon('ok-sign'), '')) %>%
-                    mutate(reviewed_fit_use_edited_cncf = ifelse(reviewed_fit_use_edited_cncf, gicon('ok-sign'), '')),
-                  selection=list(mode='single', selected=values$dt_sel),
-                  colnames = c('Sample ID (tag)', '# fits', 'Default Fit', 'Default Fit QC', 
-                               'Review Status', 'Reviewed Fit', 'Reviewed Fit QC', 'purity run only?', 
-                               'edited.cncf.txt?', 'Reviewer purity', 'Date Reviewed'),
-                  options = list(pageLength = 20, columnDefs = list(list(className = 'dt-center', targets = 0:9))),
-                  rownames=FALSE, escape = F)
+
+    if("dmp_id" %in% colnames(values$manifest_metadata))
+    {
+      DT::datatable(values$manifest_metadata %>%
+                      dplyr::select(-path, -facets_suite_version, -facets_qc_version, -dmp_id) %>%
+                      mutate(default_fit_qc = ifelse(default_fit_qc, gicon('ok'), gicon('remove'))) %>%
+                      mutate(reviewed_fit_facets_qc = 
+                              ifelse(review_status == 'Not reviewed', '',
+                                      ifelse(reviewed_fit_facets_qc, gicon('ok'), gicon('remove')))) %>%
+                      mutate(reviewed_fit_use_purity = ifelse(reviewed_fit_use_purity, gicon('ok-sign'), '')) %>%
+                      mutate(reviewed_fit_use_edited_cncf = ifelse(reviewed_fit_use_edited_cncf, gicon('ok-sign'), '')),
+                    selection=list(mode='single', selected=values$dt_sel),
+                    colnames = c('Sample ID (tag)', '# fits', 'Default Fit', 'Default Fit QC', 
+                                'Review Status', 'Reviewed Fit', 'Reviewed Fit QC', 'purity run only?', 
+                                'edited.cncf.txt?', 'Reviewer purity', 'Date Reviewed'),
+                    options = list(pageLength = 20, columnDefs = list(list(className = 'dt-center', targets = 0:9))),
+                    rownames=FALSE, escape = F)
+    }
+    else {
+             DT::datatable(values$manifest_metadata %>%
+                      dplyr::select(-path, -facets_suite_version, -facets_qc_version) %>%
+                      mutate(default_fit_qc = ifelse(default_fit_qc, gicon('ok'), gicon('remove'))) %>%
+                      mutate(reviewed_fit_facets_qc = 
+                              ifelse(review_status == 'Not reviewed', '',
+                                      ifelse(reviewed_fit_facets_qc, gicon('ok'), gicon('remove')))) %>%
+                      mutate(reviewed_fit_use_purity = ifelse(reviewed_fit_use_purity, gicon('ok-sign'), '')) %>%
+                      mutate(reviewed_fit_use_edited_cncf = ifelse(reviewed_fit_use_edited_cncf, gicon('ok-sign'), '')),
+                    selection=list(mode='single', selected=values$dt_sel),
+                    colnames = c('Sample ID (tag)', '# fits', 'Default Fit', 'Default Fit QC', 
+                                'Review Status', 'Reviewed Fit', 'Reviewed Fit QC', 'purity run only?', 
+                                'edited.cncf.txt?', 'Reviewer purity', 'Date Reviewed'),
+                    options = list(pageLength = 20, columnDefs = list(list(className = 'dt-center', targets = 0:9))),
+                    rownames=FALSE, escape = F)
+    }
   })
 
   # Downloadable csv of selected dataset ----

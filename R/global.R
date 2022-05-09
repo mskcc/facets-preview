@@ -60,6 +60,10 @@ load_repo_samples <- function(tumor_ids, manifest_file, progress) {
     metadata <- rbind(metadata, as.data.frame.list(sample_meta, stringsAsFactors = F))  
     progress$inc(1/length(repo), detail = paste(" ", i, "/", length(repo)))
   }
+  print("METADATA PRINT--")
+  print(metadata)
+  print("REPO PRINT--")
+  print(repo)
   metadata
 }
 

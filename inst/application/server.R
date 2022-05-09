@@ -314,7 +314,7 @@ function(input, output, session) {
     print("VALUES MANIFEST DATA")
     print(values$manifest_metadata)
     DT::datatable(values$manifest_metadata %>%
-                    dplyr::select(-path, -facets_suite_version, -facets_qc_version) %>%
+                    dplyr::select(-path, -facets_suite_version, -facets_qc_version, -dmp_id) %>%
                     mutate(default_fit_qc = ifelse(default_fit_qc, gicon('ok'), gicon('remove'))) %>%
                     mutate(reviewed_fit_facets_qc = 
                              ifelse(review_status == 'Not reviewed', '',

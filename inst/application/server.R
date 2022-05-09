@@ -311,6 +311,8 @@ function(input, output, session) {
     }
     
     gicon <- function(x) as.character(icon(x, lib = "glyphicon"))
+    print("VALUES MANIFEST DATA")
+    print(values$manifest_metadata)
     DT::datatable(values$manifest_metadata %>%
                     dplyr::select(-path, -facets_suite_version, -facets_qc_version) %>%
                     mutate(default_fit_qc = ifelse(default_fit_qc, gicon('ok'), gicon('remove'))) %>%

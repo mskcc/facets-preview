@@ -222,7 +222,7 @@ function(input, output, session) {
 
      if (!is.null(dmp_id) && !is.na(dmp_id)) {
        browseURL(paste0('https://cbioportal.mskcc.org/patient?studyId=mskimpact&caseId=', dmp_id))
-       showModal(modalDialog( title = "Go to cBioPortal", renderUI({a("cbio", href=paste0('https://cbioportal.mskcc.org/patient?studyId=mskimpact&caseId=', patient_id),target="_blank")})))
+       showModal(modalDialog( title = "Go to cBioPortal", renderUI({a("Click to go to cBioPortal", href=paste0('https://cbioportal.mskcc.org/patient?studyId=mskimpact&caseId=', patient_id),target="_blank")})))
 
        updateTabsetPanel(session, "reviewTabsetPanel", selected = "png_image_tabset")
 
@@ -230,7 +230,7 @@ function(input, output, session) {
        patient_id = gsub("\\-T.*", "", selected_sample)
        print(paste("patient id is ", patient_id))
        #browseURL(paste0('https://cbioportal.mskcc.org/patient?studyId=mskimpact&caseId=', patient_id))
-       showModal(modalDialog( title = "Go to cBioPortal", renderUI({a("cbio", href=paste0('https://cbioportal.mskcc.org/patient?studyId=mskimpact&caseId=', patient_id),target="_blank")})))
+       showModal(modalDialog( title = "Go to cBioPortal", renderUI({a("Click to go to cBioPortal", href=paste0('https://cbioportal.mskcc.org/patient?studyId=mskimpact&caseId=', patient_id),target="_blank")})))
        #a("cbio", paste0('https://cbioportal.mskcc.org/patient?studyId=mskimpact&caseId=', patient_id),target="_blank")
        updateTabsetPanel(session, "reviewTabsetPanel", selected = "png_image_tabset")
      } else{

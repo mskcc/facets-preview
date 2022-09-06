@@ -100,7 +100,7 @@ compile_cohort_annotations <- function(samples_to_annotate, output_prefix, ncore
            cncf_file = ifelse(!is.na(use_only_purity_run) & use_only_purity_run,
                               paste0(pfx, '_purity.cncf.txt'), paste0(pfx, '_hisens.cncf.txt')),
            seg_file = ifelse(!is.na(use_only_purity_run) & use_only_purity_run,
-                              paste0(pfx, '_purity.seg'), paste0(pfx, '_hisens.seg'))) %>%
+                              paste0(pfx, '_purity_diplogR.adjusted.seg'), paste0(pfx, '_hisens_diplogR.adjusted.seg'))) %>%
     mutate(arm_level_file_exists = file.exists(arm_level_file),
            gene_level_file_exists = file.exists(gene_level_file),
            ccf_file_exists = file.exists(ccf_file),
@@ -149,7 +149,7 @@ compile_cohort_annotations <- function(samples_to_annotate, output_prefix, ncore
                                   simplify = F, 
                                   USE.NAMES=F), 
                         fill = T)
-  write.table(seg_calls, file=paste0(output_prefix, '.seg'), quote=F, row.names=F, sep='\t')
+  write.table(seg_calls, file=paste0(output_prefix, '_diplogR.adjusted.seg'), quote=F, row.names=F, sep='\t')
   
   cncf_calls = rbindlist(parSapply(cl,
                                   (samples_annotated %>% filter(cncf_file_exists))$cncf_file,

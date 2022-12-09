@@ -40,10 +40,12 @@ compile_cohort_annotations <- function(samples_to_annotate, output_prefix, ncore
               return(fit_to_use)
             }
             
+            print(sample_path)
+
             ## read from facets_qc.txt
             qc_file = paste0(sample_path, '/facets_qc.txt')
-            review_file = paste0(sample_path, '/facets_review.manifest')
-            
+            review_file = paste0(sample_path, '/facets_review.manifest')            
+
             if (!file.exists(qc_file)| !file.exists(review_file)) { return() }
             
             qc_runs = fread(qc_file) %>% filter(fit_name != 'Not selected')

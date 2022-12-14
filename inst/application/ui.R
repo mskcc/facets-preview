@@ -211,6 +211,12 @@ ui <-
              mainPanel(
                verbatimTextOutput("verbatimTextOutput_sessionInfo")
              )
+    ),
+    tabPanel(paste0("Logged in as ", unname(Sys.info()["user"])),
+             value="tabPanel_userInfo",
+             mainPanel(
+               verbatimTextOutput("verbatimTextOutput_userInfo")
+             )
     )
   )
 )

@@ -17,6 +17,7 @@ server <-
 function(input, output, session) {
   values <- reactiveValues(config_file = ifelse( exists("facets_preview_config_file"), facets_preview_config_file, "<not set>"))
   output$verbatimTextOutput_sessionInfo <- renderPrint({print(sessionInfo())})
+  output$verbatimTextOutput_userInfo <- renderPrint({print(paste0("Logged in as ", unname(Sys.info()["user"])))})
   output$verbatimTextOutput_signAs <- renderText({paste0(system('whoami', intern = T))})
   
   observe({  
@@ -544,6 +545,15 @@ function(input, output, session) {
     sample = selected_run$tumor_sample_id[1]
     path = selected_run$path[1]
     
+    access_list = readLines("/juno/work/ccs/pricea2/ondemand/refit_access_list.txt")
+
+    if (!unname(Sys.info()["user"]) %in% access_list) {
+      showModal(modalDialog(
+        title = "Access Denied", paste0("If you need access to this feature, please contact Adam Price or Allison Richards.")
+      ))
+      return(NULL)
+    }
+
     if (!verify_access_to_write(path)) {
       showModal(modalDialog(
         title = "Failed to add review", 
@@ -782,6 +792,16 @@ function(input, output, session) {
 
   observeEvent(input$button_refit, {
     if (!verify_sshfs_mount(values$config$watcher_dir)) { return (NULL) }
+
+    access_list = readLines("/juno/work/ccs/pricea2/ondemand/refit_access_list.txt")
+
+    if (!unname(Sys.info()["user"]) %in% access_list) {
+      showModal(modalDialog(
+        title = "Access Denied", paste0("If you need refit access, please contact Adam Price or Allison Richards.")
+      ))
+      return(NULL)
+    }
+
     if (input$selectInput_selectFit == "Not selected") {
       showModal(modalDialog(
         title = "Cannot submit refit", paste0("select 'any' fit first and then click 'Run'")

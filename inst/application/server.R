@@ -955,8 +955,7 @@ function(input, output, session) {
                                     'sleep 5; ',
                                     'done; ',
                                     'echo "Found Rdata file."; ',
-                                    'chmod 775 {refit_dir}/* ',
-                                    'exit'))
+                                    'chmod 775 {refit_dir}/* '))
 
     write(wait_for_file_cmd, wait_cmd_file)
 

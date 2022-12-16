@@ -950,13 +950,14 @@ function(input, output, session) {
     #system(paste("chmod 775 ", refit_cmd_file), intern = TRUE)
 
     wait_cmd_file <- glue("{cmd_script_pfx}{sample_id}_{name_tag}_waitScript.sh")
-    wait_for_file_cmd = glue(paste0('until [ -f {refit_dir}/*Rdata ] ',
+    wait_for_file_cmd = glue(paste0('until [ $(ls {refit_dir}/*Rdata 2>/dev/null | wc -l) -gt 0 ]; ',
                                     'do ',
-                                    'sleep 5 ',
-                                    'done ',
-                                    'echo "Found Rdata file. ',
+                                    'sleep 5; ',
+                                    'done; ',
+                                    'echo "Found Rdata file."; ',
                                     'chmod 775 {refit_dir}/* ',
                                     'exit'))
+
     write(wait_for_file_cmd, wait_cmd_file)
 
     showModal(modalDialog(

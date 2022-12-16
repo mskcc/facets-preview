@@ -949,6 +949,16 @@ function(input, output, session) {
     write(refit_cmd, refit_cmd_file)
     #system(paste("chmod 775 ", refit_cmd_file), intern = TRUE)
 
+    wait_cmd_file <- glue("{cmd_script_pfx}{sample_id}_{name_tag}_waitScript.sh")
+    wait_for_file_cmd = glue(paste0('until [ -f {refit_dir}/*Rdata ] ',
+                                    'do ',
+                                    'sleep 5',
+                                    'done',
+                                    'echo "Found Rdata file.',
+                                    'chmod 775 {refit_dir}/*',
+                                    'exit'))
+    write(wait_for_file_cmd, wait_cmd_file)
+
     showModal(modalDialog(
       title = "Job submitted!", 
       paste0(ifelse(refit_note != '', paste('Warning: ', refit_note, '\n\n'), ''),
@@ -957,5 +967,6 @@ function(input, output, session) {
     values$submitted_refit <- c(values$submitted_refit, refit_dir)
 
     system(refit_cmd, intern = TRUE)
+    system(wait_for_file_cmd, intern = TRUE)
   })
 }

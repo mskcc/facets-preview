@@ -952,10 +952,10 @@ function(input, output, session) {
     wait_cmd_file <- glue("{cmd_script_pfx}{sample_id}_{name_tag}_waitScript.sh")
     wait_for_file_cmd = glue(paste0('until [ -f {refit_dir}/*Rdata ] ',
                                     'do ',
-                                    'sleep 5',
-                                    'done',
-                                    'echo "Found Rdata file.',
-                                    'chmod 775 {refit_dir}/*',
+                                    'sleep 5 ',
+                                    'done ',
+                                    'echo "Found Rdata file. ',
+                                    'chmod 775 {refit_dir}/* ',
                                     'exit'))
     write(wait_for_file_cmd, wait_cmd_file)
 

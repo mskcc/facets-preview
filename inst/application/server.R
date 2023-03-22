@@ -949,6 +949,7 @@ function(input, output, session) {
     write(refit_cmd, refit_cmd_file)
     #system(paste("chmod 775 ", refit_cmd_file), intern = TRUE)
 
+
     wait_cmd_file <- glue("{cmd_script_pfx}{sample_id}_{name_tag}_waitScript.sh")
     wait_for_file_cmd = glue(paste0('until [ $(ls {refit_dir}/*Rdata 2>/dev/null | wc -l) -gt 0 ]; ',
                                     'do ',
@@ -958,6 +959,16 @@ function(input, output, session) {
                                     'chmod 775 {refit_dir}/* '))
 
     write(wait_for_file_cmd, wait_cmd_file)
+    chmod_refit_cmd = glue(paste0("chmod 775 {refit_cmd_file} "))
+    chmod_wait_file = glue(paste0("chmod 775 {wait_cmd_file} "))
+    system(chmod_wait_file, intern = TRUE)
+    system(chmod_refit_cmd, intern = TRUE)
+
+    run_refit_from_file_cmd = glue(paste0("bsub -J 'refit_{refit_cmd_file}' -R \"rusage[mem=8G]\" -We 1:59 -n 1 -o {cmd_script_pfx}{sample_id}_{name_tag}_bsub.out -e {cmd_script_pfx}{sample_id}_{name_tag}_bsub.err bash -c \"source {refit_cmd_file}\""))
+    print(run_refit_from_file_cmd)
+    run_wait_from_file_cmd  = glue(paste0("bsub -J 'refit_{refit_cmd_file}' -R \"rusage[mem=2G]\" -We 1:59 -n 1 -o {cmd_script_pfx}{sample_id}_{name_tag}_bsub.out -e {cmd_script_pfx}{sample_id}_{name_tag}_bsub.err bash -c \"source {wait_cmd_file}\""))
+    system(run_refit_from_file_cmd, intern = TRUE)
+    system(run_wait_from_file_cmd, intern = TRUE)
 
     showModal(modalDialog(
       title = "Job submitted!", 
@@ -966,7 +977,7 @@ function(input, output, session) {
     ))
     values$submitted_refit <- c(values$submitted_refit, refit_dir)
 
-    system(refit_cmd, intern = TRUE)
-    system(wait_for_file_cmd, intern = TRUE)
+    #system(refit_cmd, intern = TRUE)
+    #system(wait_for_file_cmd, intern = TRUE)
   })
 }

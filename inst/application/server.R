@@ -776,7 +776,7 @@ function(input, output, session) {
       load(rdata_file)
       closeup_output <- close.up(out, fit, gene.name=selected_gene,
                                  cached.gene.path =
-                                   system.file("data/Homo_sapiens.GRCh37.75.gene_positions.txt",
+                                   system.file("data/SuitePreview_Merged_hg19_gene_positions.txt",
                                                package="facetsPreview"))
       gridExtra::grid.arrange(closeup_output$cnlr,
                    closeup_output$valor,
@@ -953,7 +953,7 @@ function(input, output, session) {
     wait_cmd_file <- glue("{cmd_script_pfx}{sample_id}_{name_tag}_waitScript.sh")
     wait_for_file_cmd = glue(paste0('until [ $(ls {refit_dir}/*Rdata 2>/dev/null | wc -l) -gt 0 ]; ',
                                     'do ',
-                                    'sleep 15; ',
+                                    'sleep 5; ',
                                     'done; ',
                                     'echo "Found Rdata file."; ',
                                     'chmod 775 {refit_dir}/* '))

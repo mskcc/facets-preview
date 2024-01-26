@@ -964,9 +964,9 @@ function(input, output, session) {
     system(chmod_wait_file, intern = TRUE)
     system(chmod_refit_cmd, intern = TRUE)
 
-    run_refit_from_file_cmd = glue(paste0("bsub -J 'refit_{refit_cmd_file}' -R \"rusage[mem=8G]\" -We 1:59 -n 1 -o {cmd_script_pfx}{sample_id}_{name_tag}_bsub.out -e {cmd_script_pfx}{sample_id}_{name_tag}_bsub.err bash -c \"source {refit_cmd_file}\""))
+    run_refit_from_file_cmd = glue(paste0("bsub -J 'refit_{refit_cmd_file}' -R \"rusage[mem=32G]\" -We 3:59 -n 1 -o {cmd_script_pfx}{sample_id}_{name_tag}_bsub.out -e {cmd_script_pfx}{sample_id}_{name_tag}_bsub.err bash -c \"source {refit_cmd_file}\""))
     print(run_refit_from_file_cmd)
-    run_wait_from_file_cmd  = glue(paste0("bsub -J 'refit_{refit_cmd_file}' -R \"rusage[mem=2G]\" -We 1:59 -n 1 -o {cmd_script_pfx}{sample_id}_{name_tag}_bsub.out -e {cmd_script_pfx}{sample_id}_{name_tag}_bsub.err bash -c \"source {wait_cmd_file}\""))
+    run_wait_from_file_cmd  = glue(paste0("bsub -J 'refit_{refit_cmd_file}' -R \"rusage[mem=4G]\" -We 3:59 -n 1 -o {cmd_script_pfx}{sample_id}_{name_tag}_bsub.out -e {cmd_script_pfx}{sample_id}_{name_tag}_bsub.err bash -c \"source {wait_cmd_file}\""))
     system(run_refit_from_file_cmd, intern = TRUE)
     system(run_wait_from_file_cmd, intern = TRUE)
 

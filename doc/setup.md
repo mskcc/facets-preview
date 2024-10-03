@@ -20,10 +20,10 @@ Prepare the script for launch by running `chmod 775 launch_fp.sh`.
 
 ## Prepare any SSHFS mounts for desired functionality.
 Facets Preview has a several features that rely on SSHFS mounts of institutional resources.  If you would like to setup your install of Facets Preview to use these functions, see the following sections:
-* [Access institutional FACETS IMPACT data repository.](doc/access_impact.md)
-* [Access FACETS TCGA data repository.](doc/access_tcga.md)
-* [Perform refits with HPC scheduler.](doc/access_refits.md)
-* [Create personal refits of institutional data.](doc/personal_refits.md)
+* [Access institutional FACETS IMPACT data repository.](access_impact.md)
+* [Access FACETS TCGA data repository.](access_tcga.md)
+* [Perform refits with HPC scheduler.](access_refits.md)
+* [Create personal refits of institutional data.](personal_refits.md)
 
 
 ## Run the Docker Image using the launch_fp.sh script.

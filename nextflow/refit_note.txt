@@ -1,0 +1,25 @@
+This refit manager is intended to run as a service on a remote host, at the time of writing, Juno/Terra.
+
+It requires a queue and a submitted directory, and will watch for new jobs and exectue them as they are submitted.
+
+It is intended to run on the ipipe VM associated with Juno/Terra on a screen session at all times.
+
+
+The required directory structure is:
+.
+├── lib
+│   ├── facets
+│   ├── facets-0.5.14
+│   ├── facets-suite-2.0.8
+│   └── pctGCdata-0.2.0
+├── log
+├── queue
+├── refit_manager
+│   └── work
+└── submitted
+
+
+
+with facets/ being an installed version of the facets library.
+
+Users should mount this directory as the base for remote refits.

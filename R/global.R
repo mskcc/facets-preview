@@ -12,7 +12,7 @@ load_samples <- function(manifest, progress=NA) {
   for(i in 1:length(manifest)[1]) {
     sample_path = manifest[i]
     sample_id = tail(unlist(strsplit(sample_path, "/")), 1)
-    
+
     metadata <- rbind(metadata, as.data.frame.list(metadata_init_quick(sample_id, sample_path), stringsAsFactors = F))
     if (!is.null(progress)) {
       progress$inc(1/length(manifest), detail = paste(" ", i, "/", length(manifest)))
@@ -37,7 +37,7 @@ load_repo_samples <- function(tumor_ids, manifest_file, progress) {
     stop(paste0('Aborting! manifest file does not exist. ', manifest_file))
   }
 
-  repo <- fread(cmd=paste0('gzip -dc ', manifest_file)) 
+  repo <- fread(cmd=paste0('gzip -dc ', manifest_file))
 
   ### if manifest file has old column names for sample_id (which was 'tag') and sample_path ('run_prefix'), just rename them
   if (all(c("tag", "run_prefix") %in% names(repo)) & !any(c("sample_id", "sample_path") %in% names(repo))) {
@@ -47,17 +47,17 @@ load_repo_samples <- function(tumor_ids, manifest_file, progress) {
   if (!(all(c("sample_id", "sample_path", "tumor_sample") %in% names(repo)))) {
     stop("Aborting. Manifest file does not have the required columns: sample_id, sample_path, tumor_sample")
   }
-  
+
   repo <- repo %>% dplyr::filter(tumor_sample %in% tumor_ids) %>% unique
-  
+
   if (nrow(repo) == 0) {
     return(metadata)
   }
-  
+
   for(i in 1:dim(repo)[1]) {
     sample_meta <- metadata_init_quick(repo$sample_id[i], repo$sample_path[i])
     sample_meta$dmp_id = ifelse('dmp_id' %in% names(repo), repo$dmp_id[i] , NA)
-    metadata <- rbind(metadata, as.data.frame.list(sample_meta, stringsAsFactors = F))  
+    metadata <- rbind(metadata, as.data.frame.list(sample_meta, stringsAsFactors = F))
     progress$inc(1/length(repo), detail = paste(" ", i, "/", length(repo)))
   }
   metadata
@@ -91,7 +91,7 @@ metadata_init_quick <- function(sample_id, sample_path) {
   reviewed_date = NA
   facets_qc_version = 'unknown'
   facets_suite_version = 'unknown'
-  
+
   reviews <- load_reviews(sample_id, sample_path)
   if ( nrow(reviews) > 0 ){
     num_fits = nrow(reviews %>% filter(!grepl('Not selected', fit_name)) %>% select(fit_name) %>% unique)
@@ -99,22 +99,22 @@ metadata_init_quick <- function(sample_id, sample_path) {
     default_fit_name = 'default'
     if (!(any(default_fit_name %in% reviews$fit_name))) {
       default_fit_name =
-        ((reviews %>% 
-        filter(!grepl('^facets_refit|^refit_|^alt_diplogR|Not sel', fit_name, ignore.case = T)))$fit_name %>% 
+        ((reviews %>%
+        filter(!grepl('^facets_refit|^refit_|^alt_diplogR|Not sel', fit_name, ignore.case = T)))$fit_name %>%
         unique)[1]
-      
+
       ## if default_fit_name is still not find, just pick any
       if (is.na(default_fit_name)) {
         default_fit_name = reviews$fit_name[1]
       }
     }
-    
+
     if (any(default_fit_name %in% reviews$fit_name)) {
       default_fit_qc = (reviews %>% filter(fit_name == default_fit_name) %>% arrange(desc(date_reviewed)))$facets_qc[1]
     }
-    
+
     reviews = (reviews %>% filter(review_status != 'not_reviewed') %>% arrange(desc(date_reviewed)))
-    
+
     if (nrow(reviews) > 0) {
       review_status = reviews$review_status[1]
       reviewed_fit_name = reviews$fit_name[1]
@@ -130,14 +130,14 @@ metadata_init_quick <- function(sample_id, sample_path) {
 
   return (list('sample_id' = sample_id,
             'path' = sample_path,
-            'num_fits' = num_fits, 
+            'num_fits' = num_fits,
             'default_fit_name' = default_fit_name,
             'default_fit_qc' = default_fit_qc,
-            'review_status' = review_status, 
-            'reviewed_fit_name' = reviewed_fit_name, 
+            'review_status' = review_status,
+            'reviewed_fit_name' = reviewed_fit_name,
             'reviewed_fit_facets_qc' = reviewed_fit_facets_qc,
-            'reviewed_fit_use_purity' = reviewed_fit_use_purity, 
-            'reviewed_fit_use_edited_cncf' = reviewed_fit_use_edited_cncf, 
+            'reviewed_fit_use_purity' = reviewed_fit_use_purity,
+            'reviewed_fit_use_edited_cncf' = reviewed_fit_use_edited_cncf,
             'reviewer_set_purity' = reviewer_set_purity,
             'reviewed_date' = reviewed_date,
             #'reviewed_date' = as.POSIXlt(reviewed_date, tz = Sys.timezone()),
@@ -155,7 +155,7 @@ metadata_init_quick <- function(sample_id, sample_path) {
 metadata_init <- function(sample_id, sample_path, progress = NULL, update_qc_file = TRUE) {
   facets_runs <- get_new_facets_runs_df()
   facets_run_dirs = list.dirs(sample_path, full.names=FALSE)
-  
+
   ## identify different fits generated for this sample.
   facets_run_dirs <- facets_run_dirs[grep("^facets|^default$|^refit_|^alt_diplogR", facets_run_dirs, ignore.case = T)]
 
@@ -167,13 +167,13 @@ metadata_init <- function(sample_id, sample_path, progress = NULL, update_qc_fil
     fit_name = facets_run_dirs[fi]
     facets_run = paste(sample_path, "/", fit_name, sep="")
     facets_run_files = list.files(facets_run, pattern=".out$")
-    
+
     if ( length(facets_run_files) == 0 ) { next }
-    
+
     rm(list = ls()[grep("purity_", ls())]) # remove all previous facets_params
     rm(list = ls()[grep("hisens_", ls())])
     for( fif in 1:length(facets_run_files) ) {
-      
+
       facets_out_params = readLines(paste0(facets_run, "/", facets_run_files[fif]))
       run_type = "hisens_"
       if (grepl("_purity", facets_out_params[2])) {
@@ -192,16 +192,16 @@ metadata_init <- function(sample_id, sample_path, progress = NULL, update_qc_fil
           assign(paste0(run_type, sp[1]), sp[2])
         }
       }
-      
-      ### for purity runs, run QC. (here we are checking for "not hisens" because some 
+
+      ### for purity runs, run QC. (here we are checking for "not hisens" because some
       ### runs may not have _purity or _hisens suffix)
       rdata_file = paste0(run_prefix, ".Rdata")
       if ( (length(facets_run_files) == 1) || (!grepl('hisens', run_type) & file.exists(rdata_file))) {
         facets_output = facetsSuite::load_facets_output(rdata_file)
 
         if (!is.null(facets_output$alBalLogR)) {
-          assign(paste0(run_type, "alBalLogR"), 
-                 paste(round(facets_output$alBalLogR[,1],digits = 2), 
+          assign(paste0(run_type, "alBalLogR"),
+                 paste(round(facets_output$alBalLogR[,1],digits = 2),
                        collapse=", "))
         }
         fit_qc = facets_fit_qc(facets_output)
@@ -222,7 +222,7 @@ metadata_init <- function(sample_id, sample_path, progress = NULL, update_qc_fil
                                       purity_run_Ploidy = round_down(get0("purity_Ploidy", ifnotfound = NA)),
                                       purity_run_dipLogR = round_down(get0("purity_dipLogR", ifnotfound = NA)),
                                       purity_run_alBalLogR = get0("purity_alBalLogR", ifnotfound = NA),
-    
+
                                       hisens_run_version = get0("hisens_Facetsversion", ifnotfound = NA),
                                       hisens_run_prefix = get0("hisens_prefix", ifnotfound = NA),
                                       hisens_run_Seed = get0("hisens_Seed", ifnotfound = NA),
@@ -234,71 +234,85 @@ metadata_init <- function(sample_id, sample_path, progress = NULL, update_qc_fil
                                       hisens_run_Purity = round_down(get0("hisens_Purity", ifnotfound = NA)),
                                       hisens_run_Ploidy = round_down(get0("hisens_Ploidy", ifnotfound = NA)),
                                       hisens_run_dipLogR = round_down(get0("hisens_dipLogR", ifnotfound = NA)),
-    
+
                                       manual_note = NA,
                                       is_best_fit = NA,
                                       stringsAsFactors=FALSE),
                            fit_qc))
   }
-  
+
   if (nrow(facets_runs) == 0) {
     return(NULL)
   }
-  
+
   # load reviews from the manifest file and annotate each review with the facets QC status.
-  # Here is where we make sure the facets_review.manifest is forward-compatible - transformed with 
-  # new columns 
+  # Here is where we make sure the facets_review.manifest is forward-compatible - transformed with
+  # new columns
   existing_reviews <- get_review_status(sample_id, sample_path)
-  
-  fit_qc <- 
-    facets_runs %>% 
+
+  fit_qc <-
+    facets_runs %>%
     mutate(facets_qc_version = as.character(facets_qc_version),
            facets_suite_version = as.character(facets_suite_version)) %>%
-    select(sample = tumor_sample_id, fit_name, 
+    select(sample = tumor_sample_id, fit_name,
            facets_suite_version, facets_qc_version, facets_qc)
-  
+
   reviews <-
     rbind(fit_qc, fit_qc %>% mutate(fit_name = "Not selected", facets_qc = F) %>% unique) %>%
-    left_join(existing_reviews %>% 
+    left_join(existing_reviews %>%
                 filter(!is.na(date_reviewed)) %>%
-                select(-facets_qc, -facets_suite_version)) %>% 
+                select(-facets_qc, -facets_suite_version)) %>%
     mutate(path = sample_path,
            review_status = ifelse(is.na(review_status), 'not_reviewed', review_status),
            ### Note: do no do this. because it will re-order the best_reviewed dates
            ### date_reviewed = ifelse(is.na(date_reviewed), as.character(Sys.time()), date_reviewed)
            ) %>%
-    select(sample, path, review_status, fit_name, review_notes, reviewed_by, 
+    select(sample, path, review_status, fit_name, review_notes, reviewed_by,
            date_reviewed, facets_qc, use_only_purity_run, use_edited_cncf, reviewer_set_purity,
-           facets_qc_version, facets_suite_version) 
+           facets_qc_version, facets_suite_version)
 
   reviews <-
-    rbind(existing_reviews %>% 
+    rbind(existing_reviews %>%
             filter(!(fit_name == 'Not selected' | facets_qc_version == facets_qc_version())),
           reviews)
-  
-  ### determine if the sample has at least an acceptable_fit; get the most recent review 
+
+  ### determine if the sample has at least an acceptable_fit; get the most recent review
   ### and determine if the status is 'reviewed_best_fit' or 'reviewed_acceptable_fit'
-  best_fit = (reviews %>% 
+  best_fit = (reviews %>%
                 arrange(desc(date_reviewed)) %>%
-                filter(review_status %in% c('reviewed_acceptable_fit', 
+                filter(review_status %in% c('reviewed_acceptable_fit',
                                             'reviewed_best_fit'))
               )$fit_name[1]
-  
+
   facets_runs$is_best_fit = F
   facets_runs$is_best_fit[which(facets_runs$fit_name == best_fit)] = T
-  
+
   if (update_qc_file) {
-    if (verify_access_to_write(sample_path)) {
-      write.table(facets_runs %>% select(-ends_with("_filter_note")), 
-                  file=paste0(sample_path, '/facets_qc.txt'), quote=F, row.names=F, sep='\t')
+    # Find any file that ends with "facets_qc.txt"
+    qc_file <- list.files(sample_path, pattern = "facets_qc\\.txt$", full.names = TRUE)
+
+    # Determine if there is an existing facets_qc.txt file or use a default
+    if (length(qc_file) == 0) {
+      # No facets_qc.txt file found, so we will create one named "facets_qc.txt"
+      qc_file <- file.path(sample_path, "facets_qc.txt")
     } else {
-      warning(paste0('You do not have write permissions to update ', sample_path, '/facets_qc.txt file'))
+      # Use the first matching file found
+      qc_file <- qc_file[1]
+    }
+
+    # Check write permissions
+    if (verify_access_to_write(sample_path)) {
+      # Write the updated facets_qc.txt file (either the existing one or the new one)
+      write.table(facets_runs %>% select(-ends_with("_filter_note")),
+                  file = qc_file, quote = FALSE, row.names = FALSE, sep = "\t")
+    } else {
+      warning(paste0('You do not have write permissions to update ', qc_file))
     }
   }
-  
+
   if (update_qc_file) {
     update_review_status_file(sample_path, reviews, T)
-    
+
     update_best_fit_status(sample_id, sample_path)
   }
   facets_runs
@@ -316,13 +330,13 @@ metadata_init <- function(sample_id, sample_path, progress = NULL, update_qc_fil
 #' @export load_reviews
 load_reviews <- function(sample_id, sample_path) {
   review_file = paste0(sample_path, "/facets_review.manifest")
-  
+
   reviews = get_review_status(sample_id, sample_path)
 
   if (nrow(reviews) == 0 || !('facets_qc' %in% names(reviews)) || length(which(is.na(reviews$facets_qc))) > 0) {
     metadata_init(sample_id, sample_path)
     return(get_review_status(sample_id, sample_path))
-  } 
+  }
   return(reviews)
 }
 
@@ -333,7 +347,7 @@ load_reviews <- function(sample_id, sample_path) {
 #' @return converts string to numeric and rounds to 2-digits
 #' @export get_review_status
 get_review_status <- function(sample_id, sample_path) {
-  review_file = paste0(sample_path, "/facets_review.manifest") 
+  review_file = paste0(sample_path, "/facets_review.manifest")
   if ( !file.exists( review_file ) || file.size(review_file) == 0 || countLines(review_file) < 2 ) {
     df <- data.frame(
       sample = character(),
@@ -354,27 +368,27 @@ get_review_status <- function(sample_id, sample_path) {
     return(df)
   }
   reviews <-
-    suppressWarnings(fread(review_file, colClasses=list(character="facets_qc_version", 
+    suppressWarnings(fread(review_file, colClasses=list(character="facets_qc_version",
                                        character="facets_suite_version"), verbose = F, skip = 1)) %>%
-    rename_all(recode, 'best_fit' = 'fit_name') 
-  
+    rename_all(recode, 'best_fit' = 'fit_name')
+
   ### backwards compatibility;
   {
     if (!('use_only_purity_run' %in% names(reviews))) { reviews$use_only_purity_run = FALSE }
-    
+
     if (!('use_edited_cncf' %in% names(reviews))) { reviews$use_edited_cncf = FALSE }
-    
+
     if (!('reviewer_set_purity' %in% names(reviews))) { reviews$reviewer_set_purity = NA }
-    
+
     if ('facets_suite_qc' %in% names(reviews)) { reviews <- reviews %>% rename(facets_qc = facets_suite_qc)}
-    
+
     if(!('facets_qc' %in% names(reviews))) { reviews <- reviews %>% mutate(facets_qc = NA)}
-    
+
     if (!('facets_qc_version' %in% names(reviews))) { reviews <- reviews %>% mutate(facets_qc_version = 'unknown') }
-    
+
     if (!('facets_suite_version' %in% names(reviews))) { reviews <- reviews %>% mutate(facets_suite_version = 'unknown') }
   }
-  
+
   return (reviews %>% arrange(desc(date_reviewed)))
 }
 
@@ -384,28 +398,41 @@ get_review_status <- function(sample_id, sample_path) {
 #' @export update_best_fit_status
 update_best_fit_status <- function(sample_id, sample_path) {
 
+  # Find any file that ends with "facets_qc.txt"
+  qc_file <- list.files(sample_path, pattern = "facets_qc\\.txt$", full.names = TRUE)
+
+  if (length(qc_file) == 0) {
+    stop(paste0("No facets_qc.txt file found in ", sample_path))
+  }
+
+  # Get review status for the sample
   reviews <-
-    get_review_status(sample_id, sample_path) %>% 
+    get_review_status(sample_id, sample_path) %>%
     filter(!(fit_name == 'Not selected'))
-  
-  ### determine if the sample has at least an acceptable_fit; get the most recent review 
-  ### and determine if the status is 'reviewed_best_fit' or 'reviewed_acceptable_fit'
-  best_fit = (reviews %>% 
-                arrange(desc(date_reviewed)) %>%
-                filter(review_status %in% c('reviewed_acceptable_fit', 
-                                            'reviewed_best_fit')))$fit_name[1]
-  
-  facets_runs <- fread(paste0(sample_path, '/facets_qc.txt'))
-  facets_runs$is_best_fit = F
-  facets_runs$is_best_fit[which(facets_runs$fit_name == best_fit)] = T
-  
+
+  # Determine if the sample has at least an acceptable fit; get the most recent review
+  # and determine if the status is 'reviewed_best_fit' or 'reviewed_acceptable_fit'
+  best_fit <- (reviews %>%
+                 arrange(desc(date_reviewed)) %>%
+                 filter(review_status %in% c('reviewed_acceptable_fit',
+                                             'reviewed_best_fit')))$fit_name[1]
+
+  # Load the facets_qc.txt file (first match found)
+  facets_runs <- fread(qc_file[1])
+
+  # Set all is_best_fit to FALSE and then mark the correct fit as TRUE
+  facets_runs$is_best_fit <- FALSE
+  facets_runs$is_best_fit[which(facets_runs$fit_name == best_fit)] <- TRUE
+
+  # Check if we have access to write
   if (verify_access_to_write(sample_path)) {
-    write.table(facets_runs %>% select(-ends_with("_filter_note")), 
-                file=paste0(sample_path, '/facets_qc.txt'), quote=F, row.names=F, sep='\t')
+    write.table(facets_runs %>% select(-ends_with("_filter_note")),
+                file = qc_file[1], quote = FALSE, row.names = FALSE, sep = "\t")
   } else {
-    warning(paste0('You do not have write permissions to update ', sample_path, '/facets_qc.txt file'))
+    warning(paste0("You do not have write permissions to update ", qc_file[1]))
   }
 }
+
 
 #' helper function for app
 #'
@@ -427,29 +454,31 @@ has_permissions_to_write <- function(path) {
 #' @return True/False
 #' @export verify_access_to_write
 verify_access_to_write <- function(sample_path) {
-  review_file = paste0(sample_path, '/facets_review.manifest')
-  qc_file = paste0(sample_path, '/facets_qc.txt')
-  
-  can_edit_review = F
+  review_file <- file.path(sample_path, 'facets_review.manifest')
+
+  # Find any file that ends with "facets_qc.txt"
+  qc_file <- list.files(sample_path, pattern = "facets_qc\\.txt$", full.names = TRUE)
+
+  can_edit_review <- FALSE
   if (file.exists(review_file)) {
-    #can_edit_review = !system(paste0('touch -a -r ', review_file, ' ', review_file), ignore.stderr = T)
-    can_edit_review = !system(paste0('(mv ', review_file, ' ', review_file, '. ; ', 
-                                     ' mv ', review_file, '. ', review_file, ') 2> /dev/null'), ignore.stderr = T)
+    can_edit_review <- !system(paste0('(mv ', review_file, ' ', review_file, '. ; ',
+                                      ' mv ', review_file, '. ', review_file, ') 2> /dev/null'), ignore.stderr = TRUE)
   } else {
-    can_edit_review = has_permissions_to_write(sample_path)
+    can_edit_review <- has_permissions_to_write(sample_path)
   }
-  
-  can_edit_qc = F
-  if (file.exists(qc_file)) {
-    #can_edit_qc = !system(paste0('touch -c -a -r ', qc_file, ' ', qc_file), ignore.stderr = T)
-    can_edit_qc = !system(paste0('(mv ', qc_file, ' ', qc_file, '. ; ', 
-                                 ' mv ', qc_file, '. ', qc_file, ') 2> /dev/null'), ignore.stderr = T)
+
+  can_edit_qc <- FALSE
+  if (length(qc_file) > 0) {  # Check if any qc file is found
+    # Process the first matching qc_file
+    can_edit_qc <- !system(paste0('(mv ', qc_file[1], ' ', qc_file[1], '. ; ',
+                                  ' mv ', qc_file[1], '. ', qc_file[1], ') 2> /dev/null'), ignore.stderr = TRUE)
   } else {
-    can_edit_qc = has_permissions_to_write(sample_path)
+    can_edit_qc <- has_permissions_to_write(sample_path)
   }
-  
+
   return (can_edit_review & can_edit_qc)
 }
+
 
 #' helper function for app
 #'
@@ -461,12 +490,12 @@ update_review_status_file <- function(sample_path, df, overwrite=F) {
   if (is.null(df) || dim(df)[1] == 0) {
     return (FALSE)
   }
-  
+
   if (!verify_access_to_write(sample_path)) {
     warning('You do not have write permissions to update review status file')
     return(FALSE)
   }
-  
+
   review_file = paste0(sample_path, "/facets_review.manifest")
   if ( !file.exists(review_file) | overwrite) {
     con = file(review_file)
@@ -521,6 +550,62 @@ get_new_facets_runs_df <- function() {
 #'
 #'
 #' @return
+#' @export get_geneLevel_table
+get_geneLevel_table <- function(fit_type, selected_run) {
+
+  purity_prefix = selected_run$purity_run_prefix[1]
+  run_prefix <- sub("_purity$", "", purity_prefix)
+  geneLevel_filename = paste0(run_prefix, ".gene_level.txt")
+
+  geneLevel_data <- data.table::fread(geneLevel_filename)
+
+  if ( !("gene" %in% names(geneLevel_data)) & !("chrom" %in% names(geneLevel_data)) ) {
+    return(data.table())
+  }
+
+  if (!("cf" %in% names(geneLevel_data))) {
+    geneLevel_data[, cf := cf.em]
+    geneLevel_data[, tcn := tcn.em]
+    geneLevel_data[, lcn := lcn.em]
+  }
+
+
+  geneLevel_data <-
+    geneLevel_data %>%
+    dplyr::rowwise() %>%
+    dplyr::mutate(cf = round_down(cf),
+                  cf.em = round_down(cf.em)) %>%
+    dplyr::select(-median_cnlr_seg, -segclust)
+
+  return(geneLevel_data)
+}
+
+#'
+#'
+#' @return
+#' @export get_armLevel_table
+get_armLevel_table <- function(fit_type, selected_run) {
+
+  purity_prefix = selected_run$purity_run_prefix[1]
+  run_prefix <- sub("_purity$", "", purity_prefix)
+  armLevel_filename = paste0(run_prefix, ".arm_level.txt")
+
+  armLevel_data <- data.table::fread(armLevel_filename)
+
+  if ( !("arm" %in% names(armLevel_data)) & !("arm_length" %in% names(armLevel_data)) ) {
+    return(data.table())
+  }
+
+  armLevel_data <-
+    armLevel_data %>%
+    dplyr::rowwise()
+
+  return(armLevel_data)
+}
+
+#'
+#'
+#' @return
 #' @export get_cncf_table
 get_cncf_table <- function(fit_type, selected_run) {
   if (fit_type == "Hisens") {
@@ -552,7 +637,7 @@ get_cncf_table <- function(fit_type, selected_run) {
            mafR = round_down(mafR),
            cf = round_down(cf),
            cf.em = round_down(cf.em)) %>%
-    dplyr::select(-ID, -cnlr.median.clust, -mafR.clust, -segclust)
+    dplyr::select(-cnlr.median.clust, -mafR.clust, -segclust)
 
   return(cncf_data)
 }
@@ -867,7 +952,7 @@ get.cumulative.chr.maploc = function(mat, load.genome=FALSE){
 #' @return simple metadata data.frame
 #' @import dplyr
 #' @export get.gene.pos.cached
-get.gene.pos.cached <- function(hugo.symbol, 
+get.gene.pos.cached <- function(hugo.symbol,
                                 my.path=NULL) {
   data.table::fread(my.path) %>%
     data.table %>%

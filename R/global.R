@@ -60,10 +60,6 @@ load_repo_samples <- function(tumor_ids, manifest_file, progress) {
     metadata <- rbind(metadata, as.data.frame.list(sample_meta, stringsAsFactors = F))  
     progress$inc(1/length(repo), detail = paste(" ", i, "/", length(repo)))
   }
-  print("METADATA PRINT--")
-  print(metadata)
-  print("REPO PRINT--")
-  print(repo)
   metadata
 }
 
@@ -575,15 +571,6 @@ launch_application <- function() {
 #' @return launches app
 #' @export launch_application_browser
 launch_application_browser <- function() {
-  require(bit64)
-  require(Cairo)
-  require(ggplot2)
-  require(grid)
-  require(gridExtra)
-  require(plyr)
-  require(data.table)
-  require(dplyr)
-
   shiny::runApp(appDir = system.file("application", package = "facetsPreview"), launch.browser = TRUE)
 }
 

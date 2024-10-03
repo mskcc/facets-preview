@@ -17,7 +17,7 @@ facets_cm_files=list.files(facets_dir,pattern="*.dat.gz$",full.names=TRUE)
 facets_txt_files=list.files(facets_dir,pattern="*.txt",full.names=TRUE)
 facets_png_files=list.files(facets_dir,pattern="*.png",full.names=TRUE)
 facets_out_files=list.files(facets_dir,pattern="*.out",full.names=TRUE)
-facets_seg_files=list.files(facets_dir,pattern="*.adjusted.seg",full.names=TRUE)
+facets_seg_files=list.files(facets_dir,pattern="*.seg",full.names=TRUE)
 facets_Rdata_files=list.files(facets_dir,pattern="*.Rdata",full.names=TRUE)
 
 output_dir = '/ifs/res/taylorlab/chavans/roslin_2.4_deliveries/all_facets/'

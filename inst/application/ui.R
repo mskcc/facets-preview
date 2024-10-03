@@ -105,6 +105,7 @@ ui <-
                         ),
                         wellPanel(
                           h4(strong("Generate a new fit:")),
+
                           column(12,
                                  textInput("textInput_newDipLogR", value = "","dipLogR ")),
                           column(6, 
@@ -196,8 +197,8 @@ ui <-
                                        h4(strong("Review Notes:")),
                                        textAreaInput("textAreaInput_reviewNote", label=NULL, value="", rows=1),
                                        h4(strong("Reviewed By:")),
-                                       verbatimTextOutput("verbatimTextOutput_signAs"),
-                                       actionButton("button_addReview", "Submit Review", class = "btn-primary", width='100%')
+                                       verbatimTextOutput("verbatimTextOutput_signAs")#,
+                                       #actionButton("button_addReview", "Submit Review", class = "btn-primary", width='100%')
                                        )
                                   ),
                             tabPanel("cBioPortal")
@@ -210,12 +211,6 @@ ui <-
              value="tabPanel_sessionInfo",
              mainPanel(
                verbatimTextOutput("verbatimTextOutput_sessionInfo")
-             )
-    ),
-    tabPanel(paste0("Logged in as ", unname(Sys.info()["user"])),
-             value="tabPanel_userInfo",
-             mainPanel(
-               verbatimTextOutput("verbatimTextOutput_userInfo")
              )
     )
   )

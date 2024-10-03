@@ -17,7 +17,6 @@ server <-
 function(input, output, session) {
   values <- reactiveValues(config_file = ifelse( exists("facets_preview_config_file"), facets_preview_config_file, "<not set>"))
   output$verbatimTextOutput_sessionInfo <- renderPrint({print(sessionInfo())})
-  output$verbatimTextOutput_userInfo <- renderPrint({print(paste0("Logged in as ", unname(Sys.info()["user"])))})
   output$verbatimTextOutput_signAs <- renderText({paste0(system('whoami', intern = T))})
   
   observe({  
@@ -51,67 +50,11 @@ function(input, output, session) {
     
     source(values$config$facets_qc_script)
     
-    print(c("username is ",unname(Sys.info()["user"])))
-    print(c("facetsSuite lib is set at ", values$config$facets_suite_lib))
-    print(.libPaths())
-
     library(facetsSuite, lib.loc = values$config$facets_suite_lib)
-    library(Cairo, lib.loc = values$config$facets_suite_lib)
-    library(bit64, lib.loc = values$config$facets_suite_lib)
-    library(shinyjs, lib.loc = values$config$facets_suite_lib)
-    library(data.table, lib.loc = values$config$facets_suite_lib)
-    library(plyr, lib.loc = values$config$facets_suite_lib)
-    library(dplyr, lib.loc = values$config$facets_suite_lib)
-    library(ggplot2, lib.loc = values$config$facets_suite_lib)
-    library(grid, lib.loc = values$config$facets_suite_lib)
-    library(gridExtra, lib.loc = values$config$facets_suite_lib)
-    library(lubridate, lib.loc = values$config$facets_suite_lib)
-    library(glue, lib.loc = values$config$facets_suite_lib)
-    library(purrr, lib.loc = values$config$facets_suite_lib)
-    library(tidyr, lib.loc = values$config$facets_suite_lib)
-    library(tibble, lib.loc = values$config$facets_suite_lib)
-    library(doParallel, lib.loc = values$config$facets_suite_lib)
-    library(parallel, lib.loc = values$config$facets_suite_lib)
-    library(configr, lib.loc = values$config$facets_suite_lib)
-    library(R.utils, lib.loc = values$config$facets_suite_lib)
-    library(facetsPreview, lib.loc = values$config$facets_suite_lib)
-    library(DT, lib.loc = values$config$facets_suite_lib)
-
-    #library(facetsSuite, lib.loc = "/home/pricea2/R/x86_64-pc-linux-gnu-library/4.1/")
-    #source("../../R/global.R", local = TRUE)
-
+    
     shinyjs::html("element_facets_qc_version1", paste0('facets qc version: ', facets_qc_version()))
     shinyjs::html("element_facets_qc_version2", paste0('facets qc version: ', facets_qc_version()))
     
-    # check if sshfs is mounted
-    if (!verify_sshfs_mount(values$config$watcher_dir)) {
-      return(NULL)
-    }
-
-    ## check if watcher is running
-    {
-      if (!file.exists(paste0(values$config$watcher_dir, '/watcher.log'))) {
-        showModal(modalDialog( title = "Error",  
-                               'refit watcher is not setup. check the config file. aborting!',
-                               easyClose = TRUE))
-        stopApp(1)
-      }
-      
-      cur_time = as.numeric(system(" date +%s ", intern=TRUE))
-      if (Sys.info()['sysname'] == "Linux" ) { 
-	last_mod = as.numeric(system(paste0("stat -c %Y ", values$config$watcher_dir, "/watcher.log"), intern=TRUE)) 
-      } else { 
-	last_mod = as.numeric(system(paste0("stat -f%c ", values$config$watcher_dir, "/watcher.log"), intern=TRUE)) 
-      }
-      
-      if ( cur_time - last_mod < 900) {
-        values$watcher_status = T
-        shinyjs::showElement(id="div_watcherSuccess")
-      } else {
-        values$watcher_status = F
-        shinyjs::showElement(id="div_watcherFail")
-      }
-    }
   })
   
   observeEvent(input$link_choose_repo, {
@@ -205,34 +148,20 @@ function(input, output, session) {
   
   shinyjs::hideElement("button_saveChanges")
   
-  observeEvent(input$button_mountFailRefresh, {
-    verify_sshfs_mount(values$config$watcher_dir)
-    return(NULL)
-  })
+
 
   observeEvent(input$reviewTabsetPanel, {
    if (input$reviewTabsetPanel == "cBioPortal") {
-     #if (!verify_sshfs_mount(values$config$watcher_dir)) { return (NULL) }
+
      selected_sample = paste(unlist(values$manifest_metadata[input$datatable_samples_rows_selected,1]), collapse="")
      dmp_id = (values$manifest_metadata %>% filter(sample_id == selected_sample))$dmp_id[1]
 
-    print(head(values$manifest_metadata))
-    print(paste("DMP ID IS ", dmp_id))
-    print(paste("selected_sample ID IS ", selected_sample))
-    print(paste("grepl is ", grepl('P\\-\\d{7}.*', selected_sample)))
-
      if (!is.null(dmp_id) && !is.na(dmp_id)) {
        browseURL(paste0('https://cbioportal.mskcc.org/patient?studyId=mskimpact&caseId=', dmp_id))
-       showModal(modalDialog( title = "Go to cBioPortal", renderUI({a("Click to go to cBioPortal", href=paste0('https://cbioportal.mskcc.org/patient?studyId=mskimpact&caseId=', patient_id),target="_blank")})))
-
        updateTabsetPanel(session, "reviewTabsetPanel", selected = "png_image_tabset")
-
      } else if (grepl('P\\-\\d{7}.*', selected_sample)) {
        patient_id = gsub("\\-T.*", "", selected_sample)
-       print(paste("patient id is ", patient_id))
-       #browseURL(paste0('https://cbioportal.mskcc.org/patient?studyId=mskimpact&caseId=', patient_id))
-       showModal(modalDialog( title = "Go to cBioPortal", renderUI({a("Click to go to cBioPortal", href=paste0('https://cbioportal.mskcc.org/patient?studyId=mskimpact&caseId=', patient_id),target="_blank")})))
-       #a("cbio", paste0('https://cbioportal.mskcc.org/patient?studyId=mskimpact&caseId=', patient_id),target="_blank")
+       browseURL(paste0('https://cbioportal.mskcc.org/patient?studyId=mskimpact&caseId=', patient_id))
        updateTabsetPanel(session, "reviewTabsetPanel", selected = "png_image_tabset")
      } else{
        showModal(modalDialog( title = "Not a valid DMP ID", "Cannot open this sample in cBioPortal"))
@@ -241,7 +170,7 @@ function(input, output, session) {
   })
 
   observeEvent(input$button_repoSamplesInput, {
-    if (!verify_sshfs_mount(values$config$watcher_dir)) { return (NULL) }
+
     
     if (is.null(values$selected_repo)) {
       showModal(modalDialog(title = "Failed", 
@@ -287,7 +216,7 @@ function(input, output, session) {
   })
 
   observeEvent(input$button_samplesInput, {
-    if (!verify_sshfs_mount(values$config$watcher_dir)) { return (NULL) }
+
 
     values$selected_repo = NULL
     
@@ -312,42 +241,20 @@ function(input, output, session) {
     }
     
     gicon <- function(x) as.character(icon(x, lib = "glyphicon"))
-    print("VALUES MANIFEST DATA")
-    print(values$manifest_metadata)
-
-    if("dmp_id" %in% colnames(values$manifest_metadata))
-    {
-      DT::datatable(values$manifest_metadata %>%
-                      dplyr::select(-path, -facets_suite_version, -facets_qc_version, -dmp_id) %>%
-                      mutate(default_fit_qc = ifelse(default_fit_qc, gicon('ok'), gicon('remove'))) %>%
-                      mutate(reviewed_fit_facets_qc = 
-                              ifelse(review_status == 'Not reviewed', '',
-                                      ifelse(reviewed_fit_facets_qc, gicon('ok'), gicon('remove')))) %>%
-                      mutate(reviewed_fit_use_purity = ifelse(reviewed_fit_use_purity, gicon('ok-sign'), '')) %>%
-                      mutate(reviewed_fit_use_edited_cncf = ifelse(reviewed_fit_use_edited_cncf, gicon('ok-sign'), '')),
-                    selection=list(mode='single', selected=values$dt_sel),
-                    colnames = c('Sample ID (tag)', '# fits', 'Default Fit', 'Default Fit QC', 
-                                'Review Status', 'Reviewed Fit', 'Reviewed Fit QC', 'purity run only?', 
-                                'edited.cncf.txt?', 'Reviewer purity', 'Date Reviewed'),
-                    options = list(pageLength = 20, columnDefs = list(list(className = 'dt-center', targets = 0:9))),
-                    rownames=FALSE, escape = F)
-    }
-    else {
-             DT::datatable(values$manifest_metadata %>%
-                      dplyr::select(-path, -facets_suite_version, -facets_qc_version) %>%
-                      mutate(default_fit_qc = ifelse(default_fit_qc, gicon('ok'), gicon('remove'))) %>%
-                      mutate(reviewed_fit_facets_qc = 
-                              ifelse(review_status == 'Not reviewed', '',
-                                      ifelse(reviewed_fit_facets_qc, gicon('ok'), gicon('remove')))) %>%
-                      mutate(reviewed_fit_use_purity = ifelse(reviewed_fit_use_purity, gicon('ok-sign'), '')) %>%
-                      mutate(reviewed_fit_use_edited_cncf = ifelse(reviewed_fit_use_edited_cncf, gicon('ok-sign'), '')),
-                    selection=list(mode='single', selected=values$dt_sel),
-                    colnames = c('Sample ID (tag)', '# fits', 'Default Fit', 'Default Fit QC', 
-                                'Review Status', 'Reviewed Fit', 'Reviewed Fit QC', 'purity run only?', 
-                                'edited.cncf.txt?', 'Reviewer purity', 'Date Reviewed'),
-                    options = list(pageLength = 20, columnDefs = list(list(className = 'dt-center', targets = 0:9))),
-                    rownames=FALSE, escape = F)
-    }
+    DT::datatable(values$manifest_metadata %>%
+                    dplyr::select(-path, -facets_suite_version, -facets_qc_version) %>%
+                    mutate(default_fit_qc = ifelse(default_fit_qc, gicon('ok'), gicon('remove'))) %>%
+                    mutate(reviewed_fit_facets_qc = 
+                             ifelse(review_status == 'Not reviewed', '',
+                                    ifelse(reviewed_fit_facets_qc, gicon('ok'), gicon('remove')))) %>%
+                    mutate(reviewed_fit_use_purity = ifelse(reviewed_fit_use_purity, gicon('ok-sign'), '')) %>%
+                    mutate(reviewed_fit_use_edited_cncf = ifelse(reviewed_fit_use_edited_cncf, gicon('ok-sign'), '')),
+                  selection=list(mode='single', selected=values$dt_sel),
+                  colnames = c('Sample ID (tag)', '# fits', 'Default Fit', 'Default Fit QC', 
+                               'Review Status', 'Reviewed Fit', 'Reviewed Fit QC', 'purity run only?', 
+                               'edited.cncf.txt?', 'Reviewer purity', 'Date Reviewed'),
+                  options = list(pageLength = 20, columnDefs = list(list(className = 'dt-center', targets = 0:9))),
+                  rownames=FALSE, escape = F)
   })
 
   # Downloadable csv of selected dataset ----
@@ -381,7 +288,7 @@ function(input, output, session) {
   )
   
   observeEvent(input$datatable_samples_rows_selected, {
-    if (!verify_sshfs_mount(values$config$watcher_dir)) { return (NULL) }
+
     selected_sample = paste(unlist(values$manifest_metadata[input$datatable_samples_rows_selected,1]), collapse="")
     selected_sample_path = paste(unlist(values$manifest_metadata[input$datatable_samples_rows_selected,2]), collapse="")
     selected_sample_num_fits = values$manifest_metadata[input$datatable_samples_rows_selected,4]
@@ -468,7 +375,7 @@ function(input, output, session) {
   })
 
   observeEvent(input$selectInput_selectFit, {
-    if (!verify_sshfs_mount(values$config$watcher_dir)) { return (NULL) }
+
     output$verbatimTextOutput_runParams <- renderText({})
     output$imageOutput_pngImage1 <- renderImage({ list(src="", width=0, height=0)})
     
@@ -517,13 +424,13 @@ function(input, output, session) {
                     colnames = c("Filter" , "Passed?", "Note"), 
                     escape=F)
     })
-
+    
     output$datatable_QC_metrics <- DT::renderDataTable({
       DT::datatable(selected_run %>% 
                       select(-ends_with("note"),
                              -ends_with("pass")) %>%
                       t,
-                    options = list(columnDefs = list(list(className = 'dt-center', targets = "_all")),
+                    options = list(columnDefs = list(list(className = 'dt-center')),
                                    pageLength = 200, dom = 't', rownames= FALSE),
                     colnames = c(""))
     })
@@ -545,15 +452,6 @@ function(input, output, session) {
     sample = selected_run$tumor_sample_id[1]
     path = selected_run$path[1]
     
-    access_list = readLines("/juno/work/ccs/pricea2/ondemand/refit_access_list.txt")
-
-    if (!unname(Sys.info()["user"]) %in% access_list) {
-      showModal(modalDialog(
-        title = "Access Denied", paste0("If you need access to this feature, please contact Adam Price or Allison Richards.")
-      ))
-      return(NULL)
-    }
-
     if (!verify_access_to_write(path)) {
       showModal(modalDialog(
         title = "Failed to add review", 
@@ -633,7 +531,7 @@ function(input, output, session) {
   })
 
   observeEvent(input$radioGroupButton_fitType, {
-    if (!verify_sshfs_mount(values$config$watcher_dir)) { return (NULL) }
+
 
     if (input$selectInput_selectFit == "Not selected") {
       return(NULL)
@@ -668,19 +566,16 @@ function(input, output, session) {
     
     output$datatable_cncf <- DT::renderDataTable({
       cncf_data <-
-        get_cncf_table(input$radioGroupButton_fitType, selected_run) %>%
-        data.frame()
+        get_cncf_table(input$radioGroupButton_fitType, selected_run)
       if ( dim(cncf_data)[1] == 0 ){
         showModal(modalDialog( title = "CNCF file missing", "Invalid CNCF file" ))
         return()
       }
-
       DT::datatable(cncf_data,
                     selection=list(mode='single'),
-                    options = list(columnDefs = list(list(className = 'dt-center', targets = "_all")),
+                    options = list(columnDefs = list(list(className = 'dt-center')),
                                    pageLength = 50),
                     rownames=FALSE)
-
     })
 
     output$editableSegmentsTable <- rhandsontable::renderRHandsontable({
@@ -752,7 +647,7 @@ function(input, output, session) {
   })
 
   observeEvent(input$button_closeUpView, {
-    if (!verify_sshfs_mount(values$config$watcher_dir)) { return (NULL) }
+
     if (input$selectInput_selectFit == "Not selected") {
       output$verbatimTextOutput_runParams <- renderText({})
       output$imageOutput_pngImage1 <- renderImage({ list(src="", width=0, height=0)})
@@ -776,7 +671,7 @@ function(input, output, session) {
       load(rdata_file)
       closeup_output <- close.up(out, fit, gene.name=selected_gene,
                                  cached.gene.path =
-                                   system.file("data/SuitePreview_Merged_hg19_gene_positions.txt",
+                                   system.file("data/Homo_sapiens.GRCh37.75.gene_positions.txt",
                                                package="facetsPreview"))
       gridExtra::grid.arrange(closeup_output$cnlr,
                    closeup_output$valor,
@@ -791,16 +686,6 @@ function(input, output, session) {
 
 
   observeEvent(input$button_refit, {
-    if (!verify_sshfs_mount(values$config$watcher_dir)) { return (NULL) }
-
-    access_list = readLines("/juno/work/ccs/pricea2/ondemand/refit_access_list.txt")
-
-    if (!unname(Sys.info()["user"]) %in% access_list) {
-      showModal(modalDialog(
-        title = "Access Denied", paste0("If you need refit access, please contact Adam Price or Allison Richards.")
-      ))
-      return(NULL)
-    }
 
     if (input$selectInput_selectFit == "Not selected") {
       showModal(modalDialog(
@@ -890,7 +775,7 @@ function(input, output, session) {
     name_tag = glue(name_tag)
     refit_name <- glue('/refit_{name_tag}')
     
-    cmd_script_pfx = paste0(values$config$refits_dir, "/facets_refit_cmd_")
+    cmd_script_pfx = paste0(run_path, "/refit_jobs/facets_refit_cmd_")
     
     refit_dir <- paste0(run_path, refit_name)
     facets_lib_path = supported_facets_versions[version==facets_version_to_use]$lib_path
@@ -911,7 +796,6 @@ function(input, output, session) {
     }
     
     refit_cmd_file <- glue("{cmd_script_pfx}{sample_id}_{name_tag}.sh")
-    refit_log_file = paste0("{cmd_script_pfx}{sample_id}_{name_tag}.log")
     if (file.size(counts_file_name) > 5e7) {
       refit_cmd_file <- glue("{cmd_script_pfx}{sample_id}_{name_tag}.bsub.sh")  
     }
@@ -946,30 +830,8 @@ function(input, output, session) {
                            '--cval {new_hisens_c} --purity-cval {new_purity_c} --legacy-output T -e ',
                            '--genome hg19 --directory {refit_dir} '))
 
-    write(refit_cmd, refit_cmd_file)
-    #system(paste("chmod 775 ", refit_cmd_file), intern = TRUE)
-
-
-    wait_cmd_file <- glue("{cmd_script_pfx}{sample_id}_{name_tag}_waitScript.sh")
-    wait_for_file_cmd = glue(paste0('until [ $(ls {refit_dir}/*Rdata 2>/dev/null | wc -l) -gt 0 ]; ',
-                                    'do ',
-                                    'sleep 5; ',
-                                    'done; ',
-                                    'echo "Found Rdata file."; ',
-                                    'chmod 775 {refit_dir}/* '))
-
-    write(wait_for_file_cmd, wait_cmd_file)
-    chmod_refit_cmd = glue(paste0("chmod 775 {refit_cmd_file} "))
-    chmod_wait_file = glue(paste0("chmod 775 {wait_cmd_file} "))
-    system(chmod_wait_file, intern = TRUE)
-    system(chmod_refit_cmd, intern = TRUE)
-
-    run_refit_from_file_cmd = glue(paste0("bsub -J 'refit_{refit_cmd_file}' -R \"rusage[mem=32G]\" -We 3:59 -n 1 -o {cmd_script_pfx}{sample_id}_{name_tag}_bsub.out -e {cmd_script_pfx}{sample_id}_{name_tag}_bsub.err bash -c \"source {refit_cmd_file}\""))
-    print(run_refit_from_file_cmd)
-    run_wait_from_file_cmd  = glue(paste0("bsub -J 'refit_{refit_cmd_file}' -R \"rusage[mem=4G]\" -We 3:59 -n 1 -o {cmd_script_pfx}{sample_id}_{name_tag}_bsub.out -e {cmd_script_pfx}{sample_id}_{name_tag}_bsub.err bash -c \"source {wait_cmd_file}\""))
-    system(run_refit_from_file_cmd, intern = TRUE)
-    system(run_wait_from_file_cmd, intern = TRUE)
-
+    #write(refit_cmd, refit_cmd_file)
+    
     showModal(modalDialog(
       title = "Job submitted!", 
       paste0(ifelse(refit_note != '', paste('Warning: ', refit_note, '\n\n'), ''),
@@ -977,7 +839,7 @@ function(input, output, session) {
     ))
     values$submitted_refit <- c(values$submitted_refit, refit_dir)
 
-    #system(refit_cmd, intern = TRUE)
-    #system(wait_for_file_cmd, intern = TRUE)
+    system(refit_cmd, intern = TRUE)
+
   })
 }

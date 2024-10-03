@@ -1,5 +1,5 @@
 # Setup Instructions
-To setup Facets Preview on your local machine, you need to install docker and run the container.  Follow the directions below.
+Follow the directions below to setup Facets Preview on your local machine. 
 
 ## Setup Docker on your local computer.
 *   [Mac Install](https://docs.docker.com/desktop/install/mac-install/)

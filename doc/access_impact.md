@@ -15,5 +15,8 @@ This document will address setting up your impact/ folder.
 * Update your bash_profile. `source ~/.bash_profile`
 * Mount the remote location. `mountimpact`. This will create a remote mount of the drive to your local drive, in this example at `/your/fp/directory/impact`. Note that you may need to execute this command twice, as the first execution attempt will sometimes ask for your local adminstrator password, and the second attempt will ask for your remote login credentials.
 * You can confirm your mount is functioning properly by examining /your/fp/directory/impact/ or by using the `mount` command on the command line.
-* When you next launch Facets Preview, you can setup your local impact repository path using your mount directory path.
-* ![IMPACT Repository Configuration](../image/impact_repo_path.png)
+* When you next launch Facets Preview, on the session tab, you can setup your local IMPACT repository path using your mount directory path.
+*    <img src="../images/impact_repo_path.png" alt="IMPACT Repository Configuration" width="50%">
+* You should now be able to load samples from the IMPACT repository on the Load Samples tab by DMP ID or by path.
+
+

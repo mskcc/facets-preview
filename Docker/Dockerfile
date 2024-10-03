@@ -14,7 +14,7 @@ LABEL maintainer="Adam Price (price2@mskcc.org)" \
 
 ENV FACETS_SUITE_VERSION 2.0.8
 ENV FACETS_VERSION 0.5.14
-ENV FACETS_PREVIEW_VERSION 2.1.4
+ENV FACETS_PREVIEW_VERSION 3.0.0
 ENV PCTGCDATA 0.2.0
 
 RUN sed -i '/jessie-updates/d' /etc/apt/sources.list
@@ -49,7 +49,7 @@ RUN cd /tmp \
 	&& wget https://github.com/mskcc/facets-suite/archive/${FACETS_SUITE_VERSION}.tar.gz -O facets-suite-${FACETS_SUITE_VERSION}.tar.gz \
 	&& wget https://github.com/mskcc/facets/archive/v${FACETS_VERSION}.tar.gz -O facets-v${FACETS_VERSION}.tar.gz \
 	&& wget https://github.com/mskcc/pctGCdata/archive/v${PCTGCDATA}.tar.gz \
-	&& git clone --single-branch --branch main https://github.com/mskcc/fp-docker.git facets-preview-master \
+	&& git clone --single-branch --branch master https://github.com/mskcc/facets-preview.git facets-preview-master \
 	&& tar xvzf facets-v${FACETS_VERSION}.tar.gz \
 	&& tar xvzf v${PCTGCDATA}.tar.gz \
 	&& tar xvzf facets-suite-${FACETS_SUITE_VERSION}.tar.gz \

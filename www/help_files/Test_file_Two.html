@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How to Read a FACETS Plot</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+        }
+        h1, h2 {
+            color: #2c3e50;
+        }
+        p {
+            margin-bottom: 20px;
+        }
+        ul {
+            margin-left: 20px;
+        }
+        .example-image {
+            text-align: center;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>How to Read a FACETS Plot</h1>
+
+    <p>
+        The FACETS (Fraction and Allele-Specific Copy number Estimates from Tumor/Normal Sequencing) plot is a powerful tool used to infer copy number alterations in tumor samples. This guide will walk you through the key sections of a FACETS plot and explain how to interpret them.
+    </p>
+
+    <h2>1. Copy Number Profile</h2>
+    <p>
+        The top section of the FACETS plot shows the inferred copy number profile of the tumor. This profile is a visual representation of the number of DNA copies present at each position in the genome.
+    </p>
+    <ul>
+        <li><strong>Red line</strong>: The total copy number.</li>
+        <li><strong>Blue line</strong>: The minor allele copy number (the number of copies of the less abundant allele).</li>
+    </ul>
+
+    <h2>2. LogR and BAF Tracks</h2>
+    <p>
+        The middle section of the plot contains the LogR and BAF tracks. These tracks represent the allelic imbalance and copy number variations between the tumor and normal samples.
+    </p>
+    <ul>
+        <li><strong>LogR</strong>: Shows the log ratio of observed to expected coverage for each genomic position.</li>
+        <li><strong>BAF (B-Allele Frequency)</strong>: Displays the frequency of the minor allele at each position.</li>
+    </ul>
+
+<div class="example-image">
+    <img src="../../www/help_files/example_facets_plot.png" alt="FACETS Plot Example" style="max-width: 100%;">
+    <p><em>Example of a FACETS plot with labeled sections.</em></p>
+</div>
+
+
+    <h2>3. Interpreting Copy Number Variations</h2>
+    <p>
+        Copy number variations (CNVs) can be inferred from deviations in the red and blue lines in the copy number profile. Large shifts indicate potential gains or losses in the copy number, which may be important for understanding the tumor's genetic alterations.
+    </p>
+
+    <h2>4. Summary Table</h2>
+    <p>
+        The summary table at the bottom of the plot provides a numerical overview of the copy number alterations inferred from the plot. This table includes the estimated total and minor allele copy numbers across different genomic segments.
+    </p>
+
+    <h2>Conclusion</h2>
+    <p>
+        FACETS plots provide valuable insights into the genomic alterations in a tumor. By understanding the key sections of the plot and how to interpret copy number variations, you can better understand the genetic makeup of the tumor and its potential clinical implications.
+    </p>
+</body>
+</html>
+

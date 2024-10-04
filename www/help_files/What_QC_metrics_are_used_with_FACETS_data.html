@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>What QC metrics are used with FACETS data?</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h2 { color: #16a085; }
+        p { font-size: 1.1em; line-height: 1.6em; }
+        ul { margin-left: 20px; }
+        li { margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+    <h2>What QC metrics are used with FACETS data?</h2>
+
+    <p>
+        FACETS has a built-in quality module that checks the results of each FACETS run across several metrics. The metrics used are:
+    </p>
+
+    <ul>
+        <li>dipLogR_flag - Indicates extreme dipLogR value.</li>
+        <li>n_alternative_dipLogR - Number of alternative dipLogR values.</li>
+        <li>n_dip_bal_segs - Number of balanced segments at dipLogR and the fraction of genome they represent.</li>
+        <li>n_dip_imbal_segs - Number of imbalanced segments at dipLogR and the fraction of genome they represent.</li>
+        <!-- Add all other QC metrics here -->
+    </ul>
+
+    <p>
+        These metrics are used to make determinations about the sample and make pass/fail calls for 11 FACETS QC flags.
+    </p>
+
+    <ul>
+        <li>Homozygous Deletions - This flag will pass if the percentage of n_homdels_clonal is < 2% and n_homdels < 5%.</li>
+        <li>Diploid Segments - This flag will pass if either the percentage of n_dip_bal_segs is at least 1% or n_dip_imbal_segs is >= 5%.</li>
+        <li>No Waterfall Pattern - This flag will pass if the SD from mean_cnlr_residual < 1 or the sample has at least 50% purity.</li>
+        <!-- Add all other QC flags here -->
+    </ul>
+
+</body>
+</html>
+

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>What is the difference between hisens and purity runs?</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h2 { color: #16a085; }
+        p { font-size: 1.1em; line-height: 1.6em; }
+    </style>
+</head>
+<body>
+
+    <h2>What is the difference between hisens and purity runs?</h2>
+
+    <p>
+        Facets-Suite produces two versions for each FACETS run, suffixed in fit data by <code>_purity</code> or <code>_hisens</code>. The primary difference between these runs is the <code>cValue</code> provided for the run. cValue is a smoothing metric that lets FACETS determine when to make breaks between segments.
+    </p>
+
+    <p>
+        A lower value will result in fewer segment breaks, whereas a higher value will result in a more strict interpretation of the data leading to more breaks. IMPACT repositories by default use values of 100 and 500 respectively for purity and hisens.
+    </p>
+
+</body>
+</html>
+

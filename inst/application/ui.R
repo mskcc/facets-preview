@@ -791,9 +791,10 @@ ui <-
              fluidRow(
                column(12,
                       wellPanel(
-                        h4("Help"),
+                        h4("Help Topics"),
                         uiOutput("help_links"),  # Dynamically generated links for HTML files
                         br(),
+                        tags$hr(style = "border-color: #333333;"),
                         htmlOutput("help_content")  # Dynamically loaded HTML content
                       )
                )

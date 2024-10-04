@@ -13,6 +13,7 @@
 #' @import gridExtra
 #' @import digest
 #' @import httr
+#' @import jsonlite
 
 read_session_data <- function(file_path) {
   if (file.exists(file_path)) {
@@ -583,7 +584,7 @@ function(input, output, session) {
 
     # Check if selected_sample_path is empty or NULL, and return if it is
     if (is.null(selected_sample_path) || selected_sample_path == "") {
-      print("Selected sample path is empty or NULL. Exiting function.")
+      #print("Selected sample path is empty or NULL. Exiting function.")
       return()
     }
 
@@ -780,7 +781,7 @@ function(input, output, session) {
 
     # Check if selected_sample_path is empty or NULL, and return if it is
     if (is.null(selected_sample_path) || selected_sample_path == "") {
-      print("Selected sample path is empty or NULL. Exiting function.")
+      #print("Selected sample path is empty or NULL. Exiting function.")
       return()
     }
 
@@ -3552,49 +3553,78 @@ function(input, output, session) {
 
 
   # GitHub base URL for the help files
-  library(httr)
-  base_url <- "https://raw.githubusercontent.com/mskcc/fp-docker/refs/heads/main/www/help_files/"
+  base_url <- "https://raw.githubusercontent.com/mskcc/facets-preview/master/www/help_files/"
+  api_url <- "https://api.github.com/repos/mskcc/facets-preview/contents/www/help_files"
 
-  # List of available help files on GitHub (you may want to dynamically generate this list in production)
-  help_files <- c("Test_file.html")  # Add more file names as needed
+  # Function to fetch the list of HTML files from the GitHub repository
+  get_help_files <- function(api_url) {
+    response <- httr::GET(api_url)
+
+    if (httr::status_code(response) == 200) {
+      # Parse the JSON response into a structured list
+      files_info <- jsonlite::fromJSON(content(response, as = "text", encoding = "UTF-8"))
+
+      # Filter and return only HTML files
+      html_files <- files_info$name[grep("\\.html$", files_info$name)]
+
+      return(html_files)
+    } else {
+      return(NULL)  # Return NULL in case of an error
+    }
+  }
+
+  # Dynamically generate the list of help files
+  help_files <- get_help_files(api_url)
 
   # Dynamically generate links for each HTML file from GitHub
   output$help_links <- renderUI({
+    if (is.null(help_files) || length(help_files) == 0) {
+      return(HTML("<p>Error: Could not fetch help files or no HTML files found.</p>"))
+    }
+
     # Create a link for each HTML file
     links <- lapply(help_files, function(file) {
-      file_name <- gsub("_", " ", tools::file_path_sans_ext(basename(file)))  # Create a readable link text
-      actionLink(inputId = file, label = file_name, style = "cursor: pointer;")
+      file_name <- gsub("_", " ", tools::file_path_sans_ext(basename(file)))  # Create readable link text
+      tags$li(
+        actionLink(inputId = file, label = file_name, style = "cursor: pointer;")
+      )
     })
 
-    # Return the list of links to display in the UI
-    do.call(tagList, links)
+    # Return the unordered list of links with increased font size
+    tags$ul(
+      style = "font-size: 18px;",  # Increase font size
+      do.call(tagList, links)
+    )
   })
 
   # Create an observer for each file link
-  lapply(help_files, function(file) {
-    observeEvent(input[[file]], {
-      # Construct the full URL for the file on GitHub
-      file_url <- paste0(base_url, file)
+  observe({
+    lapply(help_files, function(file) {
+      observeEvent(input[[file]], {
+        # Construct the full URL for the file on GitHub
+        file_url <- paste0(base_url, file)
 
-      # Try fetching the file from the GitHub URL
-      response <- httr::GET(file_url)
+        # Try fetching the file from the GitHub URL
+        response <- httr::GET(file_url)
 
-      if (httr::status_code(response) == 200) {
-        # If the request was successful, get the content and display it
-        help_content <- content(response, as = "text", encoding = "UTF-8")
+        if (httr::status_code(response) == 200) {
+          # If the request was successful, get the content and display it
+          help_content <- content(response, as = "text", encoding = "UTF-8")
 
-        # Display the HTML content in the help_content UI
-        output$help_content <- renderUI({
-          HTML(help_content)
-        })
-      } else {
-        # Handle error if the file could not be fetched
-        output$help_content <- renderUI({
-          HTML("<p>Error: Help file could not be loaded.</p>")
-        })
-      }
+          # Display the HTML content in the help_content UI
+          output$help_content <- renderUI({
+            HTML(help_content)
+          })
+        } else {
+          # Handle error if the file could not be fetched
+          output$help_content <- renderUI({
+            HTML("<p>Error: Help file could not be loaded.</p>")
+          })
+        }
+      })
     })
   })
+
 
   observeEvent(input$button_refit, {
 

@@ -10,6 +10,7 @@
         p { font-size: 1.1em; line-height: 1.6em; }
         ul { margin-left: 20px; }
         li { margin-bottom: 10px; }
+        code { background-color: #f4f4f4; padding: 2px 4px; font-family: "Courier New", Courier, monospace; }
     </style>
 </head>
 <body>
@@ -21,24 +22,48 @@
     </p>
 
     <ul>
-        <li>dipLogR_flag - Indicates extreme dipLogR value.</li>
-        <li>n_alternative_dipLogR - Number of alternative dipLogR values.</li>
-        <li>n_dip_bal_segs - Number of balanced segments at dipLogR and the fraction of genome they represent.</li>
-        <li>n_dip_imbal_segs - Number of imbalanced segments at dipLogR and the fraction of genome they represent.</li>
-        <!-- Add all other QC metrics here -->
+        <li><code>dipLogR_flag</code> - Indicates extreme dipLogR value.</li>
+        <li><code>n_alternative_dipLogR</code> - Number of alternative dipLogR values.</li>
+        <li><code>n_dip_bal_segs</code> - Number of balanced segments at dipLogR and the fraction of genome they represent.</li>
+        <li><code>n_dip_imbal_segs</code> - Number of imbalanced segments at dipLogR and the fraction of genome they represent.</li>
+        <li><code>n_amp</code> - Number of segments at total copy number >= 10.</li>
+        <li><code>n_homdels</code> - Number of homozygously deleted segments (total copy number = 0).</li>
+        <li><code>n_homdels_clonal</code> - Number of clonal homdel segments and the fraction of the genome they represent.</li>
+        <li><code>n_cn_states</code> - Number of unique copy-number states (i.e. combinations of major and minor copy number).</li>
+        <li><code>n_segs</code> - Number of segments.</li>
+        <li><code>n_cnlr_clusters</code> - Number of copy-number log-ratio clusters.</li>
+        <li><code>n_lcn_na</code> - Number of segments where no minor copy number was inferred (lcn is NA).</li>
+        <li><code>n_loh</code> - Number of segments where the minor copy number is 0 and the fraction of the genome they represent.</li>
+        <li><code>n_snps</code> - Number of SNPs used for segmentation.</li>
+        <li><code>n_het_snps</code> - Number of heterozygous SNPs used for segmentation and their fraction of the total.</li>
+        <li><code>n_het_snps_hom_in_tumor_1pct</code> - Number of heterozygous SNPs where the tumor allele frequency is <0.01 or >0.99, and their fraction of the total.</li>
+        <li><code>mean_cnlr_residual</code> - Mean and standard deviation of SNPs' log-ratio from their segments' copy-number log-ratio.</li>
+        <li><code>n_segs_discordant_tcn</code> - Number of segments where the naïve and EM algorithm estimates of the total copy number are discordant, and the fraction of the genome they represent.</li>
+        <li><code>n_segs_discordant_lcn</code> - Number of segments where the naïve and EM algorithm estimates of the minor copy number are discordant, and the fraction of the genome they represent.</li>
+        <li><code>n_segs_discordant_both</code> - Number of segments where the naïve and EM algorithm estimates of both copy numbers are discordant, and the fraction of the genome they represent.</li>
+        <li><code>n_segs_icn_cnlor_discordant</code> - Number of clonal segments where the log-ratio shows balance, but the copy-number solution does not, and the reverse, and the fraction of the genome they represent.</li>
+        <li><code>dip_median_vaf</code> - If MAF input: median tumor VAF of somatic mutations on clonal segments with total copy number 2 and allelic balance.</li>
+        <li><code>n_homdel_muts</code> - If MAF input: number of somatic mutations in homozygously deleted segments.</li>
+        <li><code>median_vaf_homdel_muts</code> - If MAF input: median tumor VAF of somatic mutations in homozygously deleted segments.</li>
     </ul>
 
-    <p>
-        These metrics are used to make determinations about the sample and make pass/fail calls for 11 FACETS QC flags.
-    </p>
+    <p>These metrics are used to make determinations about the sample and pass/fail calls for 11 FACETS QC flags:</p>
 
     <ul>
-        <li>Homozygous Deletions - This flag will pass if the percentage of n_homdels_clonal is < 2% and n_homdels < 5%.</li>
-        <li>Diploid Segments - This flag will pass if either the percentage of n_dip_bal_segs is at least 1% or n_dip_imbal_segs is >= 5%.</li>
-        <li>No Waterfall Pattern - This flag will pass if the SD from mean_cnlr_residual < 1 or the sample has at least 50% purity.</li>
-        <!-- Add all other QC flags here -->
+        <li><strong>Homozygous Deletions</strong> - This flag will pass if the percentage of <code>n_homdels_clonal</code> is &lt; 2% and <code>n_homdels</code> is &lt; 5%.</li>
+        <li><strong>Diploid Segments</strong> - This flag will pass if either the percentage of <code>n_dip_bal_segs</code> is at least 1% or <code>n_dip_imbal_segs</code> is &gt;= 5%.</li>
+        <li><strong>No Waterfall Pattern</strong> - This flag will pass if the SD from <code>mean_cnlr_residual</code> is &lt; 1 or the sample has at least 50% purity.</li>
+        <li><strong>No Hyper Segmentation</strong> - This flag will fail when <code>n_segs</code> &gt; 65 and an insufficient fraction of the sample is diploid.</li>
+        <li><strong>Not High Ploidy</strong> - This flag will fail if any of the following are true: ploidy &gt; 7, ploidy &gt; 5 and purity &lt; 10%, percent of sample that is balanced diploid &lt; 5%.</li>
+        <li><strong>Has Valid Purity</strong> - This will pass if purity is not NA and is not 0.3 (The 0.3 specific purity is a statistical artifact that indicates a failure).</li>
+        <li><strong>EM vs. CNCF TCN/LCN Discordance</strong> - This will fail if <code>n_segs_discordant_tcn</code> or <code>n_segs_discordant_lcn</code> &gt; 50%.</li>
+        <li><strong>DipLogR Not Too Low</strong> - This will fail if percent of sample below the <code>dipLogR</code> is &lt; 1%, AND the percent of sample that is balanced and diploid is &lt; 5%, AND percent of sample that is imbalanced and diploid is &lt; 50%.</li>
+        <li><strong>ICN is Discordant with Allelic State</strong> - This fails if the percent of the sample that is balanced where TCN is an odd number is &gt; 20% OR percent of sample that is imbalanced by ICN is balanced diploid is &gt; 20%.</li>
+        <li><strong>High Percent Subclonal</strong> - This fails if percent of sample that is subclonal is &gt; 60% AND &lt; 2% of the sample is balanced and diploid.</li>
+        <li><strong>Contamination Check</strong> - This fails if percent of het SNPs that are homozygous in the tumor is &gt; 5% and the tumor purity is &lt; 80%.</li>
     </ul>
+
+    <p>These flags can be seen in the <code>/facets_qc.txt</code> file. The above metrics and QC flags can also be seen in Facets Preview using the QC tab.</p>
 
 </body>
 </html>
-

@@ -38,7 +38,7 @@ RUN apt-get install -y inotify-tools
 
 ENV FORCE_REBUILD_R=12
 
-RUN R -e "install.packages(c('Cairo','argparse','gridExtra', 'binom', 'BiocManager', 'diptest', 'egg','shinyWidgets', 'shinyjs', 'rhandsontable', 'doParallel', 'configr', 'R.utils', 'shinyFiles', 'here', 'dplyr', 'httr'), repos='http://cran.us.r-project.org')" \
+RUN R -e "install.packages(c('Cairo','argparse','gridExtra', 'binom', 'BiocManager', 'diptest', 'egg','shinyWidgets', 'shinyjs', 'rhandsontable', 'doParallel', 'configr', 'R.utils', 'shinyFiles', 'here', 'dplyr', 'httr', 'jsonlite'), repos='http://cran.us.r-project.org')" \
 	&& R -e "BiocManager::install('rtracklayer')"
 
 # Insert this dummy operation to invalidate the cache for subsequent steps
@@ -76,4 +76,11 @@ ENV FACETS_OVERRIDE_EXITCODE set
 
 COPY fp_config.json /usr/bin/facets-preview/
 RUN chmod 744 /usr/bin/facets-preview/fp_config.json
+
 EXPOSE 3838
+
+ENV FORCE_REBUILD_RUN=1
+
+COPY run_fp.sh /usr/local/bin/run_fp
+RUN chmod 775 /usr/local/bin/run_fp
+ENTRYPOINT ["/usr/local/bin/run_fp"]

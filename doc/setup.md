@@ -27,9 +27,7 @@ Facets Preview has a several features that rely on SSHFS mounts of institutional
 
 
 ## Run the Docker Image using the launch_fp.sh script.
-Navigate to your Facets Preview directory and run `./launch_fp.sh`. This will initiate the required processes for Facets Preview and launch the Docker image. You will notice the prompt on your terminal now shows `root@randomNumberString`.  
-At this point you can consider yourself to be "inside" the running container.  If you want to exit the container, use CTRL+D.
-
-## Run the Docker Image
-* Start Facets Preview with the following command from inside the running container. `Rscript -e "facets_preview_config_file = '/usr/bin/facets-preview/fp_config.json' ; options(shiny.port = 3838, shiny.host = '0.0.0.0', shiny.launch.browser = FALSE) ; library(facetsPreview); facetsPreview::launch_application()"`
+* Navigate to your Facets Preview directory and run `./launch_fp.sh`. This will initiate the required processes for Facets Preview and launch the Docker image. You will notice the prompt on your terminal now shows `root@randomNumberString`.  
+* The container will automatically launch Facets Preview.
 * Open a browser and navigate to [http://0.0.0.0:3838/](http://0.0.0.0:3838/)
+* At this point you can consider yourself to be "inside" the running container.  If you want to stop running Facets Preview, press CTRL+D in the docker container.  If you want to exit the container, use CTRL+D.

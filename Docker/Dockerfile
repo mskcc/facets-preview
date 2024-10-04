@@ -36,13 +36,13 @@ RUN apt-get -y update && apt-get upgrade -y && apt-get install -y --fix-missing 
 RUN apt-get install -y xdg-utils --fix-missing
 RUN apt-get install -y inotify-tools
 
-ENV FORCE_REBUILD_R=12
+ENV FORCE_REBUILD_R=13
 
 RUN R -e "install.packages(c('Cairo','argparse','gridExtra', 'binom', 'BiocManager', 'diptest', 'egg','shinyWidgets', 'shinyjs', 'rhandsontable', 'doParallel', 'configr', 'R.utils', 'shinyFiles', 'here', 'dplyr', 'httr', 'jsonlite'), repos='http://cran.us.r-project.org')" \
 	&& R -e "BiocManager::install('rtracklayer')"
 
 # Insert this dummy operation to invalidate the cache for subsequent steps
-ENV FORCE_REBUILD_FACETS=23
+ENV FORCE_REBUILD_FACETS=24
 
 # Install FACETS, pctGCdata and facets-suite
 RUN cd /tmp \

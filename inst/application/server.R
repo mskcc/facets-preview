@@ -3552,6 +3552,8 @@ function(input, output, session) {
 
 
 
+  library(httr)
+
   # GitHub base URL for the help files
   base_url <- "https://raw.githubusercontent.com/mskcc/facets-preview/master/www/help_files/"
   api_url <- "https://api.github.com/repos/mskcc/facets-preview/contents/www/help_files"

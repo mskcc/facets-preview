@@ -3014,7 +3014,7 @@ function(input, output, session) {
     updateTextInput(session, "remote_path_tcga", value = remote_path_tcga)
 
     # Validate paths
-    valid_personal_storage <- validate_path(personal_storage_path) && (personal_storage_path != "")
+    valid_personal_storage <- validate_path(personal_storage_path) || (personal_storage_path == "")
     valid_mount_refit_path <- validate_path(mount_refit_path)
     valid_remote_refit_path <- validate_path(remote_refit_path)
     valid_impact_repo <- validate_path(repository_path_impact) && (!input$session_switch_impact || repository_path_impact != "")

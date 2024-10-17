@@ -310,14 +310,18 @@ function(input, output, session) {
 
   observeEvent(input$button_samplesInput, {
 
+    print("SAMPLES")
     # Get the input from textAreaInput_samplesInput and clean it up
     input_text <- input$textAreaInput_samplesInput
+
+    print(input_text)
 
     # If the input is empty, return early and do nothing
     if (is.null(input_text) || nzchar(trimws(input_text)) == FALSE) {
       return()  # Exit the function without doing anything
     }
 
+    print(lines)
     # Split the input by newline, space, tab, or comma
     lines <- unlist(strsplit(input_text, "[,\t \n]+"))
 

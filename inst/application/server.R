@@ -34,6 +34,8 @@ function(input, output, session) {
   selected_counts_file <- reactiveVal(NULL)
   skipSampleChange <- reactiveVal(FALSE)
 
+  restricted_paths <- c("/juno/work/ccs/shared/resources/")
+
   session_data <- reactiveValues(
     personal_storage_path = NULL,
     mount_refit_path = NULL,
@@ -310,7 +312,6 @@ function(input, output, session) {
 
   observeEvent(input$button_samplesInput, {
 
-    print("SAMPLES")
     # Get the input from textAreaInput_samplesInput and clean it up
     input_text <- input$textAreaInput_samplesInput
 
@@ -441,6 +442,14 @@ function(input, output, session) {
                 file, row.names = F, quote=F, sep='\t')
     }
   )
+
+
+
+  # Function to check if the given path is restricted
+  is_restricted_path <- function(check_path) {
+    # Check if the path contains any of the restricted paths
+    any(sapply(restricted_paths, function(restricted) grepl(restricted, check_path)))
+  }
 
   # Function to check if a given local path represents a remote file
   is_remote_file <- function(local_path) {
@@ -591,6 +600,18 @@ function(input, output, session) {
       #print("Selected sample path is empty or NULL. Exiting function.")
       return()
     }
+
+    # Check if storageType is Personal (FALSE) and if personal_storage_path is empty
+    if (!input$storageType && session_data$personal_storage_path == "") {
+      showNotification("Invalid personal repository configuration.", type = "error")
+
+      # Set the value of storageType back to TRUE (Remote)
+      updateSwitchInput(session, "storageType", value = TRUE)
+
+      return()  # Exit function after resetting the storageType
+    }
+
+    #session_data$personal_storage_path
 
     if (input$storageType) {
       #print("Storage Type is set to Remote")
@@ -788,6 +809,17 @@ function(input, output, session) {
       #print("Selected sample path is empty or NULL. Exiting function.")
       return()
     }
+
+    # Check if storageType is Personal (FALSE) and if personal_storage_path is empty
+    if (!input$storageType_compare && session_data$personal_storage_path == "") {
+      showNotification("Invalid personal repository configuration.", type = "error")
+
+      # Set the value of storageType back to TRUE (Remote)
+      updateSwitchInput(session, "storageType_compare", value = TRUE)
+
+      return()
+    }
+
 
     if (input$storageType_compare) {
       #print("Storage Type is set to Remote")
@@ -1093,7 +1125,9 @@ function(input, output, session) {
 
     #Hide/show refit box when necessary.
     observe({
-      if ((session_data$password_personal == 1 && !input$storageType) || session_data$password_valid == 1 || !is_remote_file(selected_sample_path)) {
+      if ((session_data$password_personal == 1 && !input$storageType) ||
+          session_data$password_valid == 1 ||
+          (is_remote_file(selected_sample_path) && !is_restricted_path(get_remote_path(selected_sample_path)))) {
         shinyjs::show("fitPanel")
         if(input$session_remote_refit)
         {
@@ -1138,7 +1172,7 @@ function(input, output, session) {
 
     if (nrow(matched_row) > 0) {
       # Check if the remote_path contains "/juno/work/"
-      if (any(grepl("/juno/work/", matched_row$remote_path))) {
+      if (is_restricted_path(matched_row$remote_path)) {
         if (session_data$password_valid == 1 || !is_remote_file(selected_sample_path)) {
           showNotification("You are authorized to make changes to this sample.", type = "message")
         } else {
@@ -1297,7 +1331,9 @@ function(input, output, session) {
 
     #Hide/show refit box when necessary.
     observe({
-      if ((session_data$password_personal == 1 && !input$storageType) || session_data$password_valid == 1 || !is_remote_file(selected_sample_path)) {
+      if ((session_data$password_personal == 1 && !input$storageType) ||
+          session_data$password_valid == 1 ||
+          (is_remote_file(selected_sample_path) && !is_restricted_path(get_remote_path(selected_sample_path)))) {
         shinyjs::show("fitPanel")
         if(input$session_remote_refit && is_remote_file(selected_sample_path))
         {
@@ -3028,6 +3064,12 @@ function(input, output, session) {
     valid_tcga_repo <- validate_path(repository_path_tcga) && (!input$session_switch_tcga || repository_path_tcga != "")
     valid_tcga_remote <- validate_path(remote_path_tcga) && (!input$session_switch_tcga || remote_path_tcga != "")
 
+    # Check if personal_storage_path is a remote file, don't let them write to mounted locations this way.
+    if (is_remote_file(personal_storage_path)) {
+      showNotification("Personal repository cannot be a mounted directory. Use a local directory instead.", type = "error")
+      personal_storage_path <- ""  # Set personal_storage_path to an empty string
+    }
+
     # Check all validations and print errors if any
     if (!valid_personal_storage){
       showNotification("Invalid or missing local storage path.", type = "error")
@@ -3202,10 +3244,27 @@ function(input, output, session) {
 
 
   set_default_countFile <- function() {
-    selected_run <- values$sample_runs %>% filter(fit_name == 'default') %>% head(n = 1)
+    # Check the number of rows in values$sample_runs
+    if (nrow(values$sample_runs) == 1) {
+      # If only one row, use that one
+      selected_run <- values$sample_runs
+    } else {
+      # If more than one row, try to filter for 'default'
+      selected_run <- values$sample_runs %>%
+        filter(fit_name == 'default') %>%
+        head(n = 1)
 
-    if (nrow(selected_run) == 0) {
-      selected_run <- values$sample_runs[which(values$sample_runs$fit_name == paste0(input$selectInput_selectFit)),]
+      # If no exact 'default' match, look for any fit_name containing 'default'
+      if (nrow(selected_run) == 0) {
+        selected_run <- values$sample_runs %>%
+          filter(grepl('default', fit_name, ignore.case = TRUE)) %>%
+          head(n = 1)
+      }
+
+      # If still no match, use the first row
+      if (nrow(selected_run) == 0) {
+        selected_run <- values$sample_runs %>% head(n = 1)
+      }
     }
 
     run_path <- selected_run$path[1]
@@ -3215,60 +3274,92 @@ function(input, output, session) {
     roots <- c(current_run = run_path)
     shinyFiles::shinyFileChoose(input, "fileInput_pileup", roots = roots, filetypes = c('dat', 'gz'))
 
+    # Try to find files that match the expected pattern for countsMerged files
     counts_file_name <- glue::glue("{run_path}/countsMerged____{sample_id}.dat.gz")
 
     if (file.exists(counts_file_name)) {
-      # Set the selected counts file path in the reactive value
+      # Set the selected counts file path in the reactive value if the exact file exists
       selected_counts_file(counts_file_name)
     } else {
-      # If the file does not exist, search for alternatives
-      files_in_directory <- list.files(run_path, pattern = "(countsMerged|\\.dat\\.gz)$", full.names = TRUE)
+      # If no file matches the exact pattern, look for any file with "count" in the name
+      files_in_directory <- list.files(run_path, pattern = "count", full.names = TRUE, ignore.case = TRUE)
 
       if (length(files_in_directory) > 0) {
+        # Use the first matching file
         selected_counts_file(files_in_directory[1])
       } else {
-        showNotification("No suitable countsMerged file found in the run directory.", type = "warning")
+        # If no "count" file is found, look for any .gz file
+        gz_files_in_directory <- list.files(run_path, pattern = "\\.gz$", full.names = TRUE)
+
+        if (length(gz_files_in_directory) > 0) {
+          # Use the first .gz file if available
+          selected_counts_file(gz_files_in_directory[1])
+        } else {
+          # If no .gz file is found, use any file in the directory
+          all_files_in_directory <- list.files(run_path, full.names = TRUE)
+
+          if (length(all_files_in_directory) > 0) {
+            # Use the first file in the directory as a fallback
+            selected_counts_file(all_files_in_directory[1])
+          }
+
+          # Show a notification that no suitable counts files were found, at this point its the user's problem.
+          showNotification(paste0("No suitable countsMerged or .gz files found in the run directory at ",run_path), type = "warning")
+        }
       }
     }
-    #showNotification(paste("Selected counts file is", selected_counts_file()), type = "message")
   }
 
+
+
+
   observeEvent(input$fileInput_pileup, {
-    # Filter the selected run and determine the run path
-    selected_run <- values$sample_runs %>% filter(fit_name == 'default') %>% head(n = 1)
+    # Check the number of rows in values$sample_runs
+    if (nrow(values$sample_runs) == 1) {
+      # If only one row, use that one
+      selected_run <- values$sample_runs
+    } else {
+      # If more than one row, try to filter for 'default'
+      selected_run <- values$sample_runs %>%
+        filter(fit_name == 'default') %>%
+        head(n = 1)
 
-    if (nrow(selected_run) == 0) {
-      selected_run <- values$sample_runs[which(values$sample_runs$fit_name == paste0(input$selectInput_selectFit)),]
+      # If no exact 'default' match, look for any fit_name containing 'default'
+      if (nrow(selected_run) == 0) {
+        selected_run <- values$sample_runs %>%
+          filter(grepl('default', fit_name, ignore.case = TRUE)) %>%
+          head(n = 1)
+      }
+
+      # If still no match, use the first row
+      if (nrow(selected_run) == 0) {
+        selected_run <- values$sample_runs %>% head(n = 1)
+      }
     }
 
-    run_path <- selected_run$path[1]  # Get the first path
+    # Check if the selected row has a valid path and is not NA
+    if (!is.null(selected_run$path) && length(selected_run$path) > 0 && !is.na(selected_run$path[1])) {
+      run_path <- selected_run$path[1]  # Get the first path
+      # Set up shinyFileChoose with the current run path as the root
+      shinyFiles::shinyFileChoose(input, "fileInput_pileup", roots = c(current_run = run_path), session = session)
 
-    # Set up shinyFileChoose with the current run path as the root
-    shinyFiles::shinyFileChoose(input, "fileInput_pileup", roots = c(current_run = run_path), session = session)
+      # Parse the file path selected by the user
+      file_info <- shinyFiles::parseFilePaths(roots = c(current_run = run_path), input$fileInput_pileup)
 
-    # Parse the file path selected by the user
-    file_info <- shinyFiles::parseFilePaths(roots = c(current_run = run_path), input$fileInput_pileup)
+      # Extract the file path as a character string
+      file_path <- as.character(file_info$datapath)
 
-    # Extract the file path as a character string
-    file_path <- as.character(file_info$datapath)
-
-    # Check if file_path is valid and update the reactive value
-    if (!is.null(file_path) && length(file_path) > 0 && file_path != "") {
-      selected_counts_file(file_path)  # Set the selected file path
-      showNotification(paste("Selected counts file is", selected_counts_file()), type = "message")
+      # Check if file_path is valid and update the reactive value
+      if (!is.null(file_path) && length(file_path) > 0 && file_path != "") {
+        selected_counts_file(file_path)  # Set the selected file path
+        showNotification(paste("Selected counts file is", selected_counts_file()), type = "message")
+      }
+    } else {
+      showNotification("No valid run path found", type = "error")
     }
   })
 
 
-  observeEvent(input$create_folder_button, {
-    personal_storage_path <- input$personal_storage_path
-    if (!dir.exists(personal_storage_path)) {
-      dir.create(personal_storage_path, recursive = TRUE)
-    }
-    updateTextInput(session, "personal_storage_path", value = personal_storage_path)
-    shinyjs::hide("invalid_path_message")
-    shinyjs::hide("create_folder_button_container")
-  })
 
 
   observeEvent(input$mount_refit_path, {
@@ -3691,7 +3782,7 @@ function(input, output, session) {
 
     if (nrow(matched_row) > 0) {
       # Check if the remote_path contains "/juno/work/"
-      if (any(grepl("/juno/work/", matched_row$remote_path))) {
+      if (is_restricted_path(matched_row$remote_path)) {
         if (session_data$password_valid == 1 || !is_remote_file(selected_sample_path)) {
           showNotification("Authorized Refit.", type = "message")
         } else {

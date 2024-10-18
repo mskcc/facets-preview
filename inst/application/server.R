@@ -3248,28 +3248,7 @@ function(input, output, session) {
 
 
   set_default_countFile <- function() {
-    # Check the number of rows in values$sample_runs
-    if (nrow(values$sample_runs) == 1) {
-      # If only one row, use that one
-      selected_run <- values$sample_runs
-    } else {
-      # If more than one row, try to filter for 'default'
-      selected_run <- values$sample_runs %>%
-        filter(fit_name == 'default') %>%
-        head(n = 1)
-
-      # If no exact 'default' match, look for any fit_name containing 'default'
-      if (nrow(selected_run) == 0) {
-        selected_run <- values$sample_runs %>%
-          filter(grepl('default', fit_name, ignore.case = TRUE)) %>%
-          head(n = 1)
-      }
-
-      # If still no match, use the first row
-      if (nrow(selected_run) == 0) {
-        selected_run <- values$sample_runs %>% head(n = 1)
-      }
-    }
+    selected_run <- get_selected_run(values$sample_runs)
 
     run_path <- selected_run$path[1]
     sample_id <- input$selectInput_selectSample
@@ -3315,31 +3294,37 @@ function(input, output, session) {
   }
 
 
-
-
-  observeEvent(input$fileInput_pileup, {
-    # Check the number of rows in values$sample_runs
-    if (nrow(values$sample_runs) == 1) {
-      # If only one row, use that one
-      selected_run <- values$sample_runs
+  get_selected_run <- function(sample_runs) {
+    # Check the number of rows in sample_runs
+    if (nrow(sample_runs) == 1) {
+      # If only one row, return that one
+      selected_run <- sample_runs
     } else {
       # If more than one row, try to filter for 'default'
-      selected_run <- values$sample_runs %>%
+      selected_run <- sample_runs %>%
         filter(fit_name == 'default') %>%
         head(n = 1)
 
       # If no exact 'default' match, look for any fit_name containing 'default'
       if (nrow(selected_run) == 0) {
-        selected_run <- values$sample_runs %>%
+        selected_run <- sample_runs %>%
           filter(grepl('default', fit_name, ignore.case = TRUE)) %>%
           head(n = 1)
       }
 
       # If still no match, use the first row
       if (nrow(selected_run) == 0) {
-        selected_run <- values$sample_runs %>% head(n = 1)
+        selected_run <- sample_runs %>% head(n = 1)
       }
     }
+
+    return(selected_run)
+  }
+
+
+  observeEvent(input$fileInput_pileup, {
+    selected_run <- get_selected_run(values$sample_runs)
+
 
     # Check if the selected row has a valid path and is not NA
     if (!is.null(selected_run$path) && length(selected_run$path) > 0 && !is.na(selected_run$path[1])) {
@@ -3770,13 +3755,15 @@ function(input, output, session) {
     sample_id = values$sample_runs$tumor_sample_id[1]
 
     ## get best fit if exists; other-wise default
-    selected_run = values$sample_runs %>% filter(fit_name=='default') %>% head(n=1)
+    selected_run <- get_selected_run(values$sample_runs)
+    #selected_run = values$sample_runs %>% filter(fit_name=='default') %>% head(n=1)
 
-    if (nrow(selected_run) == 0) {
-      selected_run <- values$sample_runs[which(values$sample_runs$fit_name == paste0(input$selectInput_selectFit)),]
-    }
+    #if (nrow(selected_run) == 0) {
+    #  selected_run <- values$sample_runs[which(values$sample_runs$fit_name == paste0(input$selectInput_selectFit)),]
+   # }
 
     mount_df <- get_mount_info()
+    print(selected_run)
 
     # Check if selected_sample_path contains any local_path entries
     matched_row <- mount_df[sapply(mount_df$local_path, function(local_path) {

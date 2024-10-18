@@ -1127,7 +1127,9 @@ function(input, output, session) {
     observe({
       if ((session_data$password_personal == 1 && !input$storageType) ||
           session_data$password_valid == 1 ||
-          (is_remote_file(selected_sample_path) && !is_restricted_path(get_remote_path(selected_sample_path)))) {
+          (is.null(get_remote_path(selected_sample_path)) ||
+           is_remote_file(selected_sample_path) &&
+           !is_restricted_path(get_remote_path(selected_sample_path)))) {
         shinyjs::show("fitPanel")
         if(input$session_remote_refit)
         {
@@ -1333,7 +1335,9 @@ function(input, output, session) {
     observe({
       if ((session_data$password_personal == 1 && !input$storageType) ||
           session_data$password_valid == 1 ||
-          (is_remote_file(selected_sample_path) && !is_restricted_path(get_remote_path(selected_sample_path)))) {
+          (is.null(get_remote_path(selected_sample_path)) ||
+           is_remote_file(selected_sample_path) &&
+           !is_restricted_path(get_remote_path(selected_sample_path)))) {
         shinyjs::show("fitPanel")
         if(input$session_remote_refit && is_remote_file(selected_sample_path))
         {

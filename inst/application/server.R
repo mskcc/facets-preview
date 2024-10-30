@@ -23,6 +23,13 @@ read_session_data <- function(file_path) {
   }
 }
 
+options(shiny.error = function() { 
+  sink("/Users/aprice/mskcc/pipelines/facets-preview/shiny_error_log.txt", append=TRUE)  # Log errors to a file
+  traceback()  # Capture stack trace
+  sink()  # Close sink
+  stop("An error occurred in the Shiny app.")  # Capture the error message
+})
+
 server <-
 function(input, output, session) {
   values <- reactiveValues(config_file = ifelse( exists("facets_preview_config_file"), facets_preview_config_file, "<not set>"))
@@ -266,7 +273,6 @@ function(input, output, session) {
 
   observeEvent(input$button_repoSamplesInput, {
 
-
     if (is.null(values$selected_repo)) {
       showModal(modalDialog(title = "Failed",
                             paste0("No facets repository selected. Please choose one.")
@@ -312,17 +318,19 @@ function(input, output, session) {
 
   observeEvent(input$button_samplesInput, {
 
+    #print("button_samplesInput-1")
+    
     # Get the input from textAreaInput_samplesInput and clean it up
     input_text <- input$textAreaInput_samplesInput
 
-    print(input_text)
+    #print(input_text)
 
     # If the input is empty, return early and do nothing
     if (is.null(input_text) || nzchar(trimws(input_text)) == FALSE) {
       return()  # Exit the function without doing anything
     }
 
-    print(lines)
+    #print(lines)
     # Split the input by newline, space, tab, or comma
     lines <- unlist(strsplit(input_text, "[,\t \n]+"))
 
@@ -333,6 +341,9 @@ function(input, output, session) {
     if (length(lines) == 0) {
       return()
     }
+    
+    #print("button_samplesInput-2")
+    
 
     # Initialize a list to store non-existing paths
     non_existing_paths <- list()
@@ -346,6 +357,9 @@ function(input, output, session) {
         return(FALSE)  # Exclude the path
       }
     })]
+    
+    #print("button_samplesInput-3")
+    
 
     # If any non-existing paths were found, display a warning notification
     if (length(non_existing_paths) > 0) {
@@ -358,16 +372,21 @@ function(input, output, session) {
     if (length(existing_lines) == 0) {
       return()
     }
+    
+    #print("button_samplesInput-4")
+    
 
     # Join cleaned lines with newline as separator
     cleaned_text <- paste(existing_lines, collapse = "\n")
 
-    # Print debug information (optional)
-    print(list(list(className = 'dt-center', targets = 0:9)))
+    #print(list(list(className = 'dt-center', targets = 0:9)))
 
     # Reset selected repo and loaded time
     values$selected_repo <- NULL
     values$loaded_time <- Sys.time()
+    
+    #print("button_samplesInput-5")
+    
 
     # Update the navbar to the "tabPanel_samplesManifest" tab
     updateNavbarPage(session, "navbarPage1", selected = "tabPanel_samplesManifest")
@@ -380,10 +399,17 @@ function(input, output, session) {
     # Process the cleaned manifest (split again by newline just to ensure consistency)
     manifest <- unlist(stringr::str_split(cleaned_text, "\n"))
 
+    #print("button_samplesInput-6")
+    
+    
     # Call the function to load the samples
     manifest_metadata <- load_samples(manifest, progress)
+    #print("button_samplesInput-6.5")
     values$manifest_metadata <- manifest_metadata
 
+    #print("button_samplesInput-7")
+    
+    
     # Reset submitted refits
     values$submitted_refits <- c()
   })
@@ -1114,15 +1140,21 @@ function(input, output, session) {
     progress <- shiny::Progress$new()
     on.exit(progress$close())
     progress$set(message = "Loading FACETS runs for the selected sample:", value = 0)
-
+    
+    #print("LoadingSample")
+    
     mount_df <- get_mount_info()
 
+    #print("_-MountDf_done")
+    
     # Check if selected_sample_path contains any local_path entries
     matched_row <- mount_df[sapply(mount_df$local_path, function(local_path) {
       grepl(local_path, selected_sample_path)
     }), ]
 
 
+    #print("matchedRows")
+    
     #Hide/show refit box when necessary.
     observe({
       if ((session_data$password_personal == 1 && !input$storageType) ||
@@ -1172,6 +1204,8 @@ function(input, output, session) {
       }
     })
 
+    #print("matchRow2")
+    
     if (nrow(matched_row) > 0) {
       # Check if the remote_path contains "/juno/work/"
       if (is_restricted_path(matched_row$remote_path)) {
@@ -1188,6 +1222,8 @@ function(input, output, session) {
       values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress)
       values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress)
     }
+    
+    #print("matchRow3")
 
     output$verbatimTextOutput_runParams <- renderText({})
     output$verbatimTextOutput_runParams_compare <- renderText({})
@@ -3916,10 +3952,13 @@ function(input, output, session) {
       refit_cmd <- lsf_cmd
       output_file_path <- glue("{input$mount_refit_path}queue/refit_{base_refit_name}")
       writeLines(refit_cmd, con = output_file_path)
+      system(glue("chmod 775 {output_file_path}"))
     }
 
+    #print("REFITTT")
     print(refit_cmd)
-
+    #print("REFITTT2")
+    
     showModal(modalDialog(
       title = "Job submitted!",
       paste0(ifelse(refit_note != '', paste('Warning: ', refit_note, '\n\n'), ''),

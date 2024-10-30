@@ -8,16 +8,32 @@
 #' @export load_samples
 load_samples <- function(manifest, progress=NA) {
   metadata <- data.frame()
+  #print("LOADSAMPLES")
+  #print(manifest)
+  
   ## could do this using sapply but want to display the progress bar;
   for(i in 1:length(manifest)[1]) {
+    start_time <- Sys.time()
+    
+    #print("MANIFEST-LOOP")
     sample_path = manifest[i]
+    print(sample_path)
     sample_id = tail(unlist(strsplit(sample_path, "/")), 1)
+    print(sample_id)
 
     metadata <- rbind(metadata, as.data.frame.list(metadata_init_quick(sample_id, sample_path), stringsAsFactors = F))
+    print(metadata)
+    
+    end_time <- Sys.time()
+    time_taken <- end_time - start_time
+    #print(paste("Time taken for iteration", i, ":", time_taken))
+    
     if (!is.null(progress)) {
       progress$inc(1/length(manifest), detail = paste(" ", i, "/", length(manifest)))
     }
   }
+  #print("ENDLOOP")
+  #print(metadata)
   metadata
 }
 
@@ -70,6 +86,7 @@ load_repo_samples <- function(tumor_ids, manifest_file, progress) {
 #' @return minimal description of the facets run
 #' @export metadata_init_quick
 metadata_init_quick <- function(sample_id, sample_path) {
+  #print("METAQUICK-1")
   run_dir_exists = "No"
   if ( dir.exists(sample_path)) {
     run_dir_exists = "Yes"
@@ -77,8 +94,11 @@ metadata_init_quick <- function(sample_id, sample_path) {
   facets_run_dirs = list.dirs(sample_path, full.names=FALSE)
   facets_run_dirs <- facets_run_dirs[grep("^facets|^default$|^refit_|^alt_diplogR", facets_run_dirs, ignore.case = T)]
 
+  #print(facets_run_dirs)
+  
   review_file = paste0(sample_path, "/facets_review.manifest")
-
+  #print("METAQUICK-2")
+  
   num_fits = ''
   default_fit_name = ''
   default_fit_qc = ''
@@ -92,7 +112,11 @@ metadata_init_quick <- function(sample_id, sample_path) {
   facets_qc_version = 'unknown'
   facets_suite_version = 'unknown'
 
+  #print("METAQUICK-3")
+  
   reviews <- load_reviews(sample_id, sample_path)
+  #print("METAQUICK-4")
+  
   if ( nrow(reviews) > 0 ){
     num_fits = nrow(reviews %>% filter(!grepl('Not selected', fit_name)) %>% select(fit_name) %>% unique)
 
@@ -127,6 +151,9 @@ metadata_init_quick <- function(sample_id, sample_path) {
       facets_suite_version = reviews$facets_suite_version[1]
     }
   }
+  
+  #print("METAQUICK-5")
+  
 
   return (list('sample_id' = sample_id,
             'path' = sample_path,
@@ -329,11 +356,17 @@ metadata_init <- function(sample_id, sample_path, progress = NULL, update_qc_fil
 #' @import dplyr
 #' @export load_reviews
 load_reviews <- function(sample_id, sample_path) {
+  #print("LOADREVIEW-1")
+  
   review_file = paste0(sample_path, "/facets_review.manifest")
+  #print("LOADREVIEW-2")
 
   reviews = get_review_status(sample_id, sample_path)
-
+  #print("LOADREVIEW-3")
+  
   if (nrow(reviews) == 0 || !('facets_qc' %in% names(reviews)) || length(which(is.na(reviews$facets_qc))) > 0) {
+    #print("LOADREVIEW-4")
+    
     metadata_init(sample_id, sample_path)
     return(get_review_status(sample_id, sample_path))
   }
@@ -347,6 +380,7 @@ load_reviews <- function(sample_id, sample_path) {
 #' @return converts string to numeric and rounds to 2-digits
 #' @export get_review_status
 get_review_status <- function(sample_id, sample_path) {
+  #print("REVIEWSTATUS-1")
   review_file = paste0(sample_path, "/facets_review.manifest")
   if ( !file.exists( review_file ) || file.size(review_file) == 0 || countLines(review_file) < 2 ) {
     df <- data.frame(
@@ -365,12 +399,16 @@ get_review_status <- function(sample_id, sample_path) {
       reviewer_set_purity = character(),
       stringsAsFactors=FALSE
     )
+    #print("REVIEWSTATUS-2")
     return(df)
   }
+  #print("REVIEWSTATUS-3")
+  print(review_file)
   reviews <-
     suppressWarnings(fread(review_file, colClasses=list(character="facets_qc_version",
                                        character="facets_suite_version"), verbose = F, skip = 1)) %>%
     rename_all(recode, 'best_fit' = 'fit_name')
+  #print("REVIEWSTATUS-4")
 
   ### backwards compatibility;
   {
@@ -389,6 +427,7 @@ get_review_status <- function(sample_id, sample_path) {
     if (!('facets_suite_version' %in% names(reviews))) { reviews <- reviews %>% mutate(facets_suite_version = 'unknown') }
   }
 
+  #print("REVIEWSTATUS-5")
   return (reviews %>% arrange(desc(date_reviewed)))
 }
 

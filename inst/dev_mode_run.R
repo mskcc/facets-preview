@@ -1,5 +1,6 @@
 #Run this in RStudio from the fp-docker top level directory.
 
+setwd("/Users/aprice/mskcc/pipelines/facets-preview/")
 library(Cairo)
 library(bit64)
 library(shinyjs)
@@ -25,9 +26,10 @@ library(shinyFiles)
 library(digest)
 library(httr)
 
-source(here::here('R', 'global.R'))
+#source(here::here('R', 'global.R'))
+source(file.path(getwd(), 'R', 'global.R'))
 
-setwd("/Users/aprice/mskcc/pipelines/fp-docker/inst/application/")
+setwd("/Users/aprice/mskcc/pipelines/facets-preview/inst/application/")
 
 facets_preview_config_file = "../../Docker/fp_config_local.json"
 

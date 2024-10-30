@@ -42,7 +42,7 @@ RUN R -e "install.packages(c('Cairo','argparse','gridExtra', 'binom', 'BiocManag
 	&& R -e "BiocManager::install('rtracklayer')"
 
 # Insert this dummy operation to invalidate the cache for subsequent steps
-ENV FORCE_REBUILD_FACETS=29
+ENV FORCE_REBUILD_FACETS=30
 
 # Install FACETS, pctGCdata and facets-suite
 RUN cd /tmp \

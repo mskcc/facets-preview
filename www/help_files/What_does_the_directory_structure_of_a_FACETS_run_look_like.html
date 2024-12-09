@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>What does the directory structure of a FACETS run look like</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h2 { color: #16a085; }
+        p { font-size: 1.1em; line-height: 1.6em; }
+        a { color: #2980b9; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        code { background-color: #f4f4f4; padding: 2px 4px; font-family: "Courier New", Courier, monospace; }
+        pre { background-color: #f9f9f9; padding: 10px; border: 1px solid #ddd; border-radius: 5px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+
+    <h2>What does the directory structure of a FACETS run look like</h2>
+
+    <p>
+        Facets Preview is currently set up to read FACETS folders in legacy format, which means when generating FACETS data using the FACETS wrapper, the 
+        <code>--use-legacy</code> and <code>--everything</code> flags should be included. The following is an example of what an institutional directory might have in terms of files and structure.
+    </p>
+
+    <pre>
+.
+├── alt_dipLogR_0.16
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3.arm_level.txt
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3.ccf.maf
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3.ccf.maf.2023-11-07.bak
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3.gene_level.txt
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_hisens.CNCF.png
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_hisens.cncf.txt
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_hisens_diplogR.adjusted.seg
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_hisens_diplogR.unadjusted.seg
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_hisens.out
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_hisens.Rdata
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_hisens.seg
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3.nonsignedout.ccf.maf
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_purity.CNCF.png
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_purity.cncf.txt
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_purity_diplogR.adjusted.seg
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_purity_diplogR.unadjusted.seg
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_purity.out
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_purity.Rdata
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_purity.seg
+│   └── P-0000098-T01-IM3_P-0000098-N01-IM3.qc.txt
+├── countsMerged____P-0000098-T01-IM3_P-0000098-N01-IM3.dat.gz
+├── default
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3.arm_level.txt
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3.ccf.maf
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3.ccf.maf.2023-11-07.bak
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3.gene_level.txt
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_hisens.CNCF.png
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_hisens.cncf.txt
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_hisens_diplogR.adjusted.seg
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_hisens_diplogR.unadjusted.seg
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_hisens.out
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_hisens.Rdata
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_hisens.seg
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3.nonsignedout.ccf.maf
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_purity.CNCF.png
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_purity.cncf.txt
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_purity_diplogR.adjusted.seg
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_purity_diplogR.unadjusted.seg
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_purity.out
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_purity.Rdata
+│   ├── P-0000098-T01-IM3_P-0000098-N01-IM3_purity.seg
+│   └── P-0000098-T01-IM3_P-0000098-N01-IM3.qc.txt
+├── facets_qc.txt
+├── facets_review.manifest
+├── P-0000098-T01-IM3_P-0000098-N01-IM3.maf
+└── P-0000098-T01-IM3_P-0000098-N01-IM3.nonsignedout.maf
+    </pre>
+
+    <p>
+        The above example has two fits, default and alt-dipLogR fit. The base directory requires 
+        <code>facets_qc.txt</code>, <code>facets_review.manifest</code>, and a counts pileup file. There are variations on this structure, but this is a standard example.
+    </p>
+
+</body>
+</html>
+

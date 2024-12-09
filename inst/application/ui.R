@@ -732,19 +732,6 @@ ui <-
                             ,
                             tabPanel("Segments",
                                      mainPanel(DT::dataTableOutput("datatable_cncf"), width=12)),
-                            tabPanel("Segments (editable)",
-                                     wellPanel(
-                                       HTML(
-                                         "<div style=\"padding: 1px;font-size: 14px; \">
-                                         <u>Note:</u> This table is editable and 'Save Changes' button saves the edits to file ending
-                                         with .cncf.edited.txt. This '.cncf.edited.txt' file (if exists) will be loaded
-                                         automatically next time. (Only tcn/lcn/tcn.em/lcn.em are saved)</div><br>"
-                                       ),
-                                       actionButton("button_saveChanges", "Save changes to this file",
-                                                    width='100%', class="btn-primary"),
-                                       rhandsontable::rHandsontableOutput("editableSegmentsTable"))
-
-                                     ),
                             tabPanel("Review notes",
                                      wellPanel(
                                        h4(strong("facets QC summary:")),

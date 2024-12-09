@@ -250,7 +250,9 @@ function(input, output, session) {
   observeEvent(input$reviewTabsetPanel, {
     if (input$reviewTabsetPanel == "cBioPortal") {
 
-      selected_sample <- paste(unlist(values$manifest_metadata[input$datatable_samples_rows_selected, 1]), collapse = "")
+      #selected_sample <- paste(unlist(values$manifest_metadata[input$datatable_samples_rows_selected, 1]), collapse = "")
+      selected_sample = paste(unlist(values$manifest_metadata$sample_id[values$manifest_metadata$sample_id %in% input$selectInput_selectSample]), collapse="")
+
       dmp_id <- (values$manifest_metadata %>% filter(sample_id == selected_sample))$dmp_id[1]
 
       url <- NULL
@@ -1867,6 +1869,10 @@ function(input, output, session) {
     if (is.null(armLevel_data1) || nrow(armLevel_data1) == 0) {
       return(NULL)
     }
+    
+    if (!input$compareFitsCheck) {
+      return(armLevel_data1)
+    }
 
     armLevel_data2 <- if (!is.null(input$radioGroupButton_fitType_compare) && !is.null(selected_run_compare)) {
       tryCatch({
@@ -1973,6 +1979,10 @@ function(input, output, session) {
 
     if (is.null(geneLevel_data1) || nrow(geneLevel_data1) == 0) {
       return(NULL)
+    }
+    
+    if (!input$compareFitsCheck) {
+      return(geneLevel_data1)
     }
 
     geneLevel_data2 <- if (!is.null(input$radioGroupButton_fitType_compare) && !is.null(selected_run_compare)) {
@@ -2374,7 +2384,8 @@ function(input, output, session) {
       return()
     }
 
-    selected_run <- values$sample_runs[1,]
+    #selected_run <- values$sample_runs[1,]
+    selected_run <- values$sample_runs[which(values$sample_runs$fit_name == paste0(input$selectInput_selectFit)),]
     sample = selected_run$tumor_sample_id[1]
     path = selected_run$path[1]
 

@@ -23,12 +23,12 @@ read_session_data <- function(file_path) {
   }
 }
 
-options(shiny.error = function() { 
-  sink("/Users/aprice/mskcc/pipelines/facets-preview/shiny_error_log.txt", append=TRUE)  # Log errors to a file
-  traceback()  # Capture stack trace
-  sink()  # Close sink
-  stop("An error occurred in the Shiny app.")  # Capture the error message
-})
+#options(shiny.error = function() {
+#  sink("/Users/aprice/mskcc/pipelines/facets-preview/shiny_error_log.txt", append=TRUE)  # Log errors to a file
+#  traceback()  # Capture stack trace
+#  sink()  # Close sink
+#  stop("An error occurred in the Shiny app.")  # Capture the error message
+#})
 
 server <-
 function(input, output, session) {
@@ -321,7 +321,7 @@ function(input, output, session) {
   observeEvent(input$button_samplesInput, {
 
     #print("button_samplesInput-1")
-    
+
     # Get the input from textAreaInput_samplesInput and clean it up
     input_text <- input$textAreaInput_samplesInput
 
@@ -343,9 +343,9 @@ function(input, output, session) {
     if (length(lines) == 0) {
       return()
     }
-    
+
     #print("button_samplesInput-2")
-    
+
 
     # Initialize a list to store non-existing paths
     non_existing_paths <- list()
@@ -359,9 +359,9 @@ function(input, output, session) {
         return(FALSE)  # Exclude the path
       }
     })]
-    
+
     #print("button_samplesInput-3")
-    
+
 
     # If any non-existing paths were found, display a warning notification
     if (length(non_existing_paths) > 0) {
@@ -374,9 +374,9 @@ function(input, output, session) {
     if (length(existing_lines) == 0) {
       return()
     }
-    
+
     #print("button_samplesInput-4")
-    
+
 
     # Join cleaned lines with newline as separator
     cleaned_text <- paste(existing_lines, collapse = "\n")
@@ -386,9 +386,9 @@ function(input, output, session) {
     # Reset selected repo and loaded time
     values$selected_repo <- NULL
     values$loaded_time <- Sys.time()
-    
+
     #print("button_samplesInput-5")
-    
+
 
     # Update the navbar to the "tabPanel_samplesManifest" tab
     updateNavbarPage(session, "navbarPage1", selected = "tabPanel_samplesManifest")
@@ -402,16 +402,16 @@ function(input, output, session) {
     manifest <- unlist(stringr::str_split(cleaned_text, "\n"))
 
     #print("button_samplesInput-6")
-    
-    
+
+
     # Call the function to load the samples
     manifest_metadata <- load_samples(manifest, progress)
     #print("button_samplesInput-6.5")
     values$manifest_metadata <- manifest_metadata
 
     #print("button_samplesInput-7")
-    
-    
+
+
     # Reset submitted refits
     values$submitted_refits <- c()
   })
@@ -512,6 +512,7 @@ function(input, output, session) {
       remote_path <- gsub(matched_local_path, matched_remote_path, local_path)
       return(remote_path)
     } else {
+      print("no remote path")
       # If no match, return NULL or an appropriate message
       return(NULL)
     }
@@ -536,6 +537,7 @@ function(input, output, session) {
       return(local_path)
     } else {
       # If no match, return NULL or an appropriate message
+      print("no local path")
       return(NULL)
     }
   }
@@ -576,6 +578,7 @@ function(input, output, session) {
 
     if (nrow(matching_row) == 0) {
       # If no matching row is found, return NULL
+      print("no personal path")
       return(NULL)
     }
 
@@ -1142,13 +1145,13 @@ function(input, output, session) {
     progress <- shiny::Progress$new()
     on.exit(progress$close())
     progress$set(message = "Loading FACETS runs for the selected sample:", value = 0)
-    
+
     #print("LoadingSample")
-    
+
     mount_df <- get_mount_info()
 
     #print("_-MountDf_done")
-    
+
     # Check if selected_sample_path contains any local_path entries
     matched_row <- mount_df[sapply(mount_df$local_path, function(local_path) {
       grepl(local_path, selected_sample_path)
@@ -1156,7 +1159,7 @@ function(input, output, session) {
 
 
     #print("matchedRows")
-    
+
     #Hide/show refit box when necessary.
     observe({
       if ((session_data$password_personal == 1 && !input$storageType) ||
@@ -1207,7 +1210,7 @@ function(input, output, session) {
     })
 
     #print("matchRow2")
-    
+
     if (nrow(matched_row) > 0) {
       # Check if the remote_path contains "/juno/work/"
       if (is_restricted_path(matched_row$remote_path)) {
@@ -1224,7 +1227,7 @@ function(input, output, session) {
       values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress)
       values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress)
     }
-    
+
     #print("matchRow3")
 
     output$verbatimTextOutput_runParams <- renderText({})
@@ -1869,7 +1872,7 @@ function(input, output, session) {
     if (is.null(armLevel_data1) || nrow(armLevel_data1) == 0) {
       return(NULL)
     }
-    
+
     if (!input$compareFitsCheck) {
       return(armLevel_data1)
     }
@@ -1980,7 +1983,7 @@ function(input, output, session) {
     if (is.null(geneLevel_data1) || nrow(geneLevel_data1) == 0) {
       return(NULL)
     }
-    
+
     if (!input$compareFitsCheck) {
       return(geneLevel_data1)
     }
@@ -2928,11 +2931,15 @@ function(input, output, session) {
 
     # Check if the mount_refit_path is invalid and set the switch to false
     repository_path_impact <- input$repository_path_impact
+    print(c("repository_path_impact: ", repository_path_impact))
+
 
     # Normalize the repository_path_impact by removing any trailing slash
     normalized_repository_path_impact <- sub("/+$", "", repository_path_impact)
+    print(c("repository_path_impact: ",repository_path_impact))
     mount_df <- get_mount_info()
     mount_df$normalized_local_path <- sub("/+$", "", mount_df$local_path)
+    print(mount_df)
 
     # Look for a match in mount paths
     matched_row <- mount_df[mount_df$normalized_local_path == normalized_repository_path_impact, ]
@@ -3437,13 +3444,16 @@ function(input, output, session) {
     normalized_repository_path_impact <- sub("/+$", "", repository_path_impact)
     mount_df <- get_mount_info()
     mount_df$normalized_local_path <- sub("/+$", "", mount_df$local_path)
+    print(mount_df)
 
     matched_row <- mount_df[mount_df$normalized_local_path == normalized_repository_path_impact, ]
+
 
     if (nrow(matched_row) > 0) {
       updateTextInput(session, "remote_path_impact", value = matched_row$remote_path)
       session_data$remote_path_impact <- matched_row$remote_path
       shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = TRUE)
+      print("No matched rows")
     }
     else
     {
@@ -3969,7 +3979,7 @@ function(input, output, session) {
     #print("REFITTT")
     print(refit_cmd)
     #print("REFITTT2")
-    
+
     showModal(modalDialog(
       title = "Job submitted!",
       paste0(ifelse(refit_note != '', paste('Warning: ', refit_note, '\n\n'), ''),

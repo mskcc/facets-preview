@@ -23,12 +23,59 @@ read_session_data <- function(file_path) {
   }
 }
 
-#options(shiny.error = function() {
-#  sink("/Users/aprice/mskcc/pipelines/facets-preview/shiny_error_log.txt", append=TRUE)  # Log errors to a file
-#  traceback()  # Capture stack trace
-#  sink()  # Close sink
-#  stop("An error occurred in the Shiny app.")  # Capture the error message
-#})
+# ---------- FACETS Preview path init (VM-aware) ----------
+init_fp_paths <- function() {
+  mode <- Sys.getenv("FP_MODE", "")
+  if (identical(mode, "vm")) {
+    base <- Sys.getenv("FP_USER_BASE_WORKDIR", "")
+    user <- Sys.getenv("FP_USER_ID", "")
+    store_dir <- normalizePath(file.path(base, user), mustWork = FALSE)
+
+    if (!nzchar(base) || !nzchar(user)) {
+      warning("[FP] VM mode enabled but FP_USER_BASE_WORKDIR or FP_USER_ID is empty.")
+    }
+
+    # Ensure per-user dir exists
+    dir.create(store_dir, recursive = TRUE, showWarnings = FALSE)
+
+    options(
+      "fp.store_dir"     = store_dir,
+      "fp.session_file"  = file.path(store_dir, ".fp_session.dat"),
+      "fp.personal_file" = file.path(store_dir, ".fp_personal.dat")
+    )
+
+    # Optional: backwards-compat symlinks in HOME so legacy reads of "~/.fp_*.dat" still work
+    try({
+      home_session  <- path.expand("~/.fp_session.dat")
+      home_personal <- path.expand("~/.fp_personal.dat")
+      if (!file.exists(home_session)  && !file.exists(home_session,  follow.links = TRUE)) {
+        file.symlink(getOption("fp.session_file"),  home_session)
+      }
+      if (!file.exists(home_personal) && !file.exists(home_personal, follow.links = TRUE)) {
+        file.symlink(getOption("fp.personal_file"), home_personal)
+      }
+    }, silent = TRUE)
+
+  } else {
+    # Local defaults
+    options(
+      "fp.store_dir"     = path.expand("~"),
+      "fp.session_file"  = path.expand("~/.fp_session.dat"),
+      "fp.personal_file" = path.expand("~/.fp_personal.dat")
+    )
+  }
+}
+
+
+init_fp_paths()
+
+# Small accessors to use everywhere
+fp_store_dir     <- function() getOption("fp.store_dir")
+fp_session_path  <- function() getOption("fp.session_file")
+fp_personal_path <- function() getOption("fp.personal_file")
+# ---------------------------------------------------------
+
+
 
 server <-
 function(input, output, session) {
@@ -80,8 +127,8 @@ function(input, output, session) {
   valid_hashed_password <- "0c75707e31ad67243d510045c5545401339db24104a5d9947ef57eca0e300307"
   valid_personal_password <- "e2b03f0d6b892667621b9f8cfa54353db7d760f72b8c26f4e9577800f8bc4505"
 
-  session_data_file <- "~/.fp_session.dat"
-  personal_repo_meta_file <- "~/.fp_personal.dat"
+  session_data_file <- fp_session_path()
+  personal_repo_meta_file <- fp_personal_path()
   initial_session_data <- read_session_data(session_data_file)
   if (!is.null(initial_session_data)) {
 
@@ -284,11 +331,28 @@ function(input, output, session) {
       if (nzchar(val)) val else "null"
     }
 
+    # Safely get resolved paths even if helpers aren't defined yet
+    safe_path <- function(opt_key, fallback) {
+      val <- tryCatch({
+        if (exists("fp_session_path", mode = "function") && opt_key == "fp.session_file") {
+          fp_session_path()
+        } else if (exists("fp_personal_path", mode = "function") && opt_key == "fp.personal_file") {
+          fp_personal_path()
+        } else {
+          getOption(opt_key, fallback)
+        }
+      }, error = function(e) fallback)
+      if (nzchar(val)) val else "null"
+    }
+
     rows <- list(
       list(label = "FP_MODE",              value = env_or_null("FP_MODE")),
       list(label = "FP_USER_ID",           value = env_or_null("FP_USER_ID")),
       list(label = "FP_USER_BASE_WORKDIR", value = env_or_null("FP_USER_BASE_WORKDIR")),
-      list(label = "FP_USER_WORKDIR",      value = env_or_null("FP_USER_WORKDIR"))
+      list(label = "FP_USER_WORKDIR",      value = env_or_null("FP_USER_WORKDIR")),
+      # New: resolved file paths (VM-aware)
+      list(label = "Resolved .fp_session.dat",  value = safe_path("fp.session_file",  path.expand("~/.fp_session.dat"))),
+      list(label = "Resolved .fp_personal.dat", value = safe_path("fp.personal_file", path.expand("~/.fp_personal.dat")))
     )
 
     div(
@@ -307,7 +371,7 @@ function(input, output, session) {
               "padding:2px 6px;word-break:break-all;"
             }
             tags$tr(
-              tags$td(style = "width:220px;padding:2px 6px;color:#333;font-weight:600;", r$label),
+              tags$td(style = "width:240px;padding:2px 6px;color:#333;font-weight:600;", r$label),
               tags$td(style = value_style, r$value)
             )
           })
@@ -315,6 +379,7 @@ function(input, output, session) {
       )
     )
   })
+
 
 
   observeEvent(input$button_repoSamplesInput, {
@@ -608,7 +673,7 @@ function(input, output, session) {
 
   get_remote_path_from_personal <- function(personal_path) {
     # Ensure the .fp_personal.dat file exists
-    personal_repo_meta_file <- file.path("~/.fp_personal.dat")
+    personal_repo_meta_file <- file.path(fp_personal_path())
     if (!file.exists(personal_repo_meta_file)) {
       create_personal_storage_file()
       #stop("~/.fp_personal.dat file does not exist.")
@@ -640,7 +705,7 @@ function(input, output, session) {
   create_personal_storage_file <- function()
   {
     # Define the path to the personal repo meta file
-    personal_repo_meta_file <- path.expand("~/.fp_personal.dat")
+    personal_repo_meta_file <- path.expand(fp_personal_path())
 
     # Check if the file exists; if not, create it
     if (!file.exists(personal_repo_meta_file)) {
@@ -695,7 +760,7 @@ function(input, output, session) {
       personal_path <- get_personal_path(selected_sample_path)
 
       # Define the path to the personal repo meta file
-      personal_repo_meta_file <- file.path("~/.fp_personal.dat")
+      personal_repo_meta_file <- file.path(fp_personal_path())
 
       # Check if the .fp_personal.dat file exists
       if (file.exists(personal_repo_meta_file)) {
@@ -738,7 +803,7 @@ function(input, output, session) {
       remote_path <- get_remote_path(selected_sample_path)
 
       # Define the path to the personal repo meta file
-      personal_repo_meta_file <- file.path("~/.fp_personal.dat")
+      personal_repo_meta_file <- file.path(fp_personal_path())
 
       # Check if the file exists; if not, create it
       if (!file.exists(personal_repo_meta_file)) {
@@ -903,7 +968,7 @@ function(input, output, session) {
       personal_path <- get_personal_path(selected_sample_path)
 
       # Define the path to the personal repo meta file
-      personal_repo_meta_file <- file.path("~/.fp_personal.dat")
+      personal_repo_meta_file <- file.path(fp_personal_path())
 
       # Check if the .fp_personal.dat file exists
       if (file.exists(personal_repo_meta_file)) {
@@ -946,7 +1011,7 @@ function(input, output, session) {
       remote_path <- get_remote_path(selected_sample_path)
 
       # Define the path to the personal repo meta file
-      personal_repo_meta_file <- file.path("~/.fp_personal.dat")
+      personal_repo_meta_file <- file.path(fp_personal_path())
 
       # Check if the file exists; if not, create it
       if (!file.exists(personal_repo_meta_file)) {
@@ -1080,7 +1145,7 @@ function(input, output, session) {
     #print("Updating manifest metadata with personal paths")
 
     # Ensure the .fp_personal.dat file exists
-    personal_repo_meta_file <- file.path("~/.fp_personal.dat")
+    personal_repo_meta_file <- file.path(fp_personal_path())
     if (!file.exists(personal_repo_meta_file)) {
       create_personal_storage_file()
       #stop(".fp_personal.dat file does not exist. Cannot update manifest metadata.")
@@ -1124,7 +1189,7 @@ function(input, output, session) {
     #print("Updating manifest metadata with local paths")
 
     # Ensure the .fp_personal.dat file exists
-    personal_repo_meta_file <- file.path("~/.fp_personal.dat")
+    personal_repo_meta_file <- file.path(fp_personal_path())
     if (!file.exists(personal_repo_meta_file)) {
       create_personal_storage_file()
       #stop(".fp_personal.dat file does not exist. Cannot update manifest metadata.")
@@ -1393,7 +1458,7 @@ function(input, output, session) {
     }
 
     # Check if .fp_personal.dat file exists
-    personal_repo_meta_file <- file.path("~/.fp_personal.dat")
+    personal_repo_meta_file <- file.path(fp_personal_path())
     if (!file.exists(personal_repo_meta_file)) {
       #print(".fp_personal.dat file does not exist.")
       create_personal_storage_file()
@@ -1529,7 +1594,7 @@ function(input, output, session) {
 
 
     # Check if .fp_personal.dat file exists
-    personal_repo_meta_file <- file.path("~/.fp_personal.dat")
+    personal_repo_meta_file <- file.path(fp_personal_path())
     if (!file.exists(personal_repo_meta_file)) {
       #print(".fp_personal.dat file does not exist.")
       create_personal_storage_file()
@@ -3272,10 +3337,10 @@ function(input, output, session) {
         password_personal = session_data$password_personal %||% "",
         stringsAsFactors = FALSE
       )
-      write.table(session_data_df, file = "~/.fp_session.dat", row.names = FALSE, col.names = TRUE, sep = "\t")
+      write.table(session_data_df, file = fp_session_path(), row.names = FALSE, col.names = TRUE, sep = "\t")
 
       # Show a green notification that the session data was saved
-      showNotification("Session data saved to ~/.fp_session.dat", type = "message")
+      showNotification(c("Session data saved to ",fp_session_path()), type = "message")
 
       # Get the mount information
       juno_lines <- get_mount_info()

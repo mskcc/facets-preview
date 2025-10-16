@@ -272,6 +272,50 @@ function(input, output, session) {
     }
   })
 
+  # --- Session env banner renderer ---
+  observe({
+    # no-op; keeps a spot if you later want reactivity
+  })
+
+  output$fp_session_banner <- renderUI({
+    # Helper: return env var or "null" when unset/empty
+    env_or_null <- function(key) {
+      val <- Sys.getenv(key, unset = "")
+      if (nzchar(val)) val else "null"
+    }
+
+    rows <- list(
+      list(label = "FP_MODE",              value = env_or_null("FP_MODE")),
+      list(label = "FP_USER_ID",           value = env_or_null("FP_USER_ID")),
+      list(label = "FP_USER_BASE_WORKDIR", value = env_or_null("FP_USER_BASE_WORKDIR")),
+      list(label = "FP_USER_WORKDIR",      value = env_or_null("FP_USER_WORKDIR"))
+    )
+
+    div(
+      style = "margin-bottom:12px;padding:12px;border:1px solid #ddd;border-radius:8px;background:#f8f9fa;",
+      tags$div(
+        style = "display:flex;align-items:center;gap:8px;margin-bottom:6px;",
+        tags$strong(style = "font-size:16px;", "Session")
+      ),
+      tags$table(
+        style = "width:100%;border-collapse:collapse;font-family:monospace;font-size:12px;",
+        tags$tbody(
+          lapply(rows, function(r) {
+            value_style <- if (identical(r$value, "null")) {
+              "padding:2px 6px;word-break:break-all;color:#888;font-style:italic;"
+            } else {
+              "padding:2px 6px;word-break:break-all;"
+            }
+            tags$tr(
+              tags$td(style = "width:220px;padding:2px 6px;color:#333;font-weight:600;", r$label),
+              tags$td(style = value_style, r$value)
+            )
+          })
+        )
+      )
+    )
+  })
+
 
   observeEvent(input$button_repoSamplesInput, {
 

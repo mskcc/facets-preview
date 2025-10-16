@@ -115,6 +115,7 @@ ui <-
                    div(
                      style = "text-align:left; padding: 20px;",
                      h4("Session Configuration", style = "font-weight: bold; color: black;"),
+                     uiOutput("fp_session_banner"),
                      fluidRow(
                        column(10,
                               # Repository Configuration: IMPACT

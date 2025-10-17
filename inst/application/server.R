@@ -23,6 +23,17 @@ read_session_data <- function(file_path) {
   }
 }
 
+if (!exists("%||%", mode = "function")) {
+  `%||%` <- function(a, b) {
+    if (is.null(a)) return(b)
+    if (length(a) == 0) return(b)
+    if (is.atomic(a) && length(a) == 1 && is.na(a)) return(b)
+    if (is.character(a) && length(a) == 1 && !nzchar(a)) return(b)
+    a
+  }
+}
+
+
 # ---- Simple key=value config reader for VM global.config ----
 .read_kv_config <- function(cfg_path) {
   if (!file.exists(cfg_path)) return(list())
@@ -137,8 +148,6 @@ vm_identity_path <- function(p) {
   if (is_vm_mode()) return(p %||% "")
   p %||% ""
 }
-
-`%||%` <- function(a, b) if (!is.null(a) && nzchar(a)) a else b
 
 
 

@@ -23,7 +23,43 @@ read_session_data <- function(file_path) {
   }
 }
 
-# ---------- FACETS Preview path init (VM-aware) ----------
+# ---- Simple key=value config reader for VM global.config ----
+.read_kv_config <- function(cfg_path) {
+  if (!file.exists(cfg_path)) return(list())
+  lines <- readLines(cfg_path, warn = FALSE)
+  # strip comments and whitespace
+  lines <- gsub("#.*$", "", lines)
+  lines <- trimws(lines)
+  lines <- lines[nzchar(lines)]
+  out <- list()
+  for (ln in lines) {
+    m <- regexec("^([A-Za-z0-9_]+)\\s*=\\s*(.*)$", ln)
+    mm <- regmatches(ln, m)[[1]]
+    if (length(mm) == 3) {
+      key <- mm[2]
+      val <- mm[3]
+      # strip surrounding quotes if present
+      val <- trimws(val)
+      if (startsWith(val, "\"") && endsWith(val, "\"")) {
+        val <- substring(val, 2, nchar(val) - 1)
+      }
+      out[[key]] <- val
+    }
+  }
+  out
+}
+
+# Return restricted paths respecting VM config, else default
+get_restricted_paths <- function() {
+  if (identical(Sys.getenv("FP_MODE", ""), "vm")) {
+    rp <- getOption("fp.restricted_paths", NULL)
+    if (is.null(rp)) character(0) else rp
+  } else {
+    c("/juno/work/ccs/shared/resources/", "/data1/core006/ccs/shared/resources/")
+  }
+}
+# -------------------------------------------------------------
+
 init_fp_paths <- function() {
   mode <- Sys.getenv("FP_MODE", "")
   if (identical(mode, "vm")) {
@@ -35,7 +71,6 @@ init_fp_paths <- function() {
       warning("[FP] VM mode enabled but FP_USER_BASE_WORKDIR or FP_USER_ID is empty.")
     }
 
-    # Ensure per-user dir exists
     dir.create(store_dir, recursive = TRUE, showWarnings = FALSE)
 
     options(
@@ -44,7 +79,25 @@ init_fp_paths <- function() {
       "fp.personal_file" = file.path(store_dir, ".fp_personal.dat")
     )
 
-    # Optional: backwards-compat symlinks in HOME so legacy reads of "~/.fp_*.dat" still work
+    # [VM] Load global.config from the *base* workdir (shared across users)
+    # File example:
+    #   restricted_paths = "/data1/core006/ccs/shared/resources/"
+    cfg_path <- file.path(base, "global.config")
+    cfg <- .read_kv_config(cfg_path)
+    if (!is.null(cfg$restricted_paths)) {
+      # allow comma-separated values too
+      paths <- unlist(strsplit(cfg$restricted_paths, "\\s*,\\s*"))
+      options("fp.restricted_paths" = paths)
+    }
+
+    opts_repo <- list(
+      impact = cfg$impact_repo_path %||% "",
+      tcga   = cfg$tcga_repo_path   %||% "",
+      tempo  = cfg$tempo_repo_path  %||% ""
+    )
+    options("fp.default_repo_paths" = opts_repo)
+
+    # legacy symlinks
     try({
       home_session  <- path.expand("~/.fp_session.dat")
       home_personal <- path.expand("~/.fp_personal.dat")
@@ -57,7 +110,6 @@ init_fp_paths <- function() {
     }, silent = TRUE)
 
   } else {
-    # Local defaults
     options(
       "fp.store_dir"     = path.expand("~"),
       "fp.session_file"  = path.expand("~/.fp_session.dat"),
@@ -66,14 +118,27 @@ init_fp_paths <- function() {
   }
 }
 
-
+# Call once at startup
 init_fp_paths()
 
-# Small accessors to use everywhere
 fp_store_dir     <- function() getOption("fp.store_dir")
 fp_session_path  <- function() getOption("fp.session_file")
 fp_personal_path <- function() getOption("fp.personal_file")
-# ---------------------------------------------------------
+
+is_vm_mode <- function() identical(Sys.getenv("FP_MODE", ""), "vm")
+
+get_vm_repo_defaults <- function() {
+  d <- getOption("fp.default_repo_paths", default = NULL)
+  if (is.null(d)) list(impact="", tcga="", tempo="") else d
+}
+
+# Identity translator for VM mode; passthrough for now
+vm_identity_path <- function(p) {
+  if (is_vm_mode()) return(p %||% "")
+  p %||% ""
+}
+
+`%||%` <- function(a, b) if (!is.null(a) && nzchar(a)) a else b
 
 
 
@@ -88,7 +153,7 @@ function(input, output, session) {
   selected_counts_file <- reactiveVal(NULL)
   skipSampleChange <- reactiveVal(FALSE)
 
-  restricted_paths <- c("/juno/work/ccs/shared/resources/")
+  restricted_paths <- get_restricted_paths()
 
   session_data <- reactiveValues(
     personal_storage_path = NULL,
@@ -130,6 +195,33 @@ function(input, output, session) {
   session_data_file <- fp_session_path()
   personal_repo_meta_file <- fp_personal_path()
   initial_session_data <- read_session_data(session_data_file)
+
+  if (is_vm_mode()) {
+    defs <- get_vm_repo_defaults()
+
+    # IMPACT
+    if (!nzchar(input$repository_path_impact)) {
+      updateTextInput(session, "repository_path_impact", value = defs$impact)
+      updateTextInput(session, "remote_path_impact",     value = defs$impact)
+      shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = FALSE)
+    }
+    # TCGA
+    if (!nzchar(input$repository_path_tcga)) {
+      updateTextInput(session, "repository_path_tcga", value = defs$tcga)
+      updateTextInput(session, "remote_path_tcga",     value = defs$tcga)
+      shinyWidgets::updateSwitchInput(session, "session_switch_tcga", value = FALSE)
+    }
+    # TEMPO (optional/empty OK)
+    if (!nzchar(input$repository_path_tempo) && nzchar(defs$tempo)) {
+      updateTextInput(session, "repository_path_tempo", value = defs$tempo)
+      updateTextInput(session, "remote_path_tempo",     value = defs$tempo)
+      shinyWidgets::updateSwitchInput(session, "session_switch_tempo", value = FALSE)
+    }
+    # Refit toggle off by default in VM
+    shinyWidgets::updateSwitchInput(session, "session_remote_refit", value = FALSE)
+  }
+
+
   if (!is.null(initial_session_data)) {
 
     updateTextInput(session, "personal_storage_path", value = initial_session_data$personal_storage_path)
@@ -590,6 +682,8 @@ function(input, output, session) {
 
   # Function to check if a given local path represents a remote file
   is_remote_file <- function(local_path) {
+    if (is_vm_mode()) return(FALSE)  # no sshfs in VM
+
     # Get the mount information
     mount_df <- get_mount_info()
 
@@ -604,6 +698,8 @@ function(input, output, session) {
 
   # Function to get the remote path corresponding to a given local path
   get_remote_path <- function(local_path) {
+    if (is_vm_mode()) return(FALSE)  # no sshfs in VM
+
     # Get the mount information
     mount_df <- get_mount_info()
 
@@ -628,6 +724,8 @@ function(input, output, session) {
   }
 
   get_local_path <- function(remote_path) {
+    if (is_vm_mode()) return(FALSE)  # no sshfs in VM
+
     # Get the mount information
     mount_df <- get_mount_info()
 
@@ -3011,6 +3109,11 @@ function(input, output, session) {
 
   # Observe changes to the remote refit switch
   observeEvent(input$session_remote_refit, {
+    if (is_vm_mode()) {
+      shinyWidgets::updateSwitchInput(session, "session_remote_refit", value = FALSE)
+      return()
+    }
+
     if (!input$session_remote_refit && !validate_path(input$remote_refit_path)) {
       updateTextInput(session, "remote_refit_path", value = "/juno/work/ccs/shared/resources/fp/")
     }
@@ -3034,6 +3137,11 @@ function(input, output, session) {
 
   # Observe changes to the impact switch
   observeEvent(input$session_switch_impact, {
+    if (is_vm_mode()) {
+      shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = FALSE)
+      return()
+    }
+
     if (!input$session_switch_impact && !validate_path(input$remote_path_impact)) {
       updateTextInput(session, "remote_path_impact", value = "/juno/work/ccs/shared/resources/impact/facets/all/")
     }
@@ -3063,6 +3171,11 @@ function(input, output, session) {
 
   # Observe changes to the tempo switch
   observeEvent(input$session_switch_tempo, {
+    if (is_vm_mode()) {
+      shinyWidgets::updateSwitchInput(session, "session_switch_tempo", value = FALSE)
+      return()
+    }
+
     if (!input$session_switch_tempo && !validate_path(input$remote_path_tempo)) {
       updateTextInput(session, "remote_path_tempo", value = "/juno/work/ccs/")
     }
@@ -3087,6 +3200,11 @@ function(input, output, session) {
 
   # Observe changes to the tcga switch
   observeEvent(input$session_switch_tcga, {
+    if (is_vm_mode()) {
+      shinyWidgets::updateSwitchInput(session, "session_switch_tcga", value = FALSE)
+      return()
+    }
+
     if (!input$session_switch_tcga && !validate_path(input$remote_path_tcga)) {
       updateTextInput(session, "remote_path_tcga", value = "/juno/work/ccs/shared/resources/tcga/facets/all/")
     }
@@ -3133,6 +3251,10 @@ function(input, output, session) {
   }
 
   get_mount_info <- function() {
+    if (is_vm_mode()) {
+      return(data.frame(remote_path=character(), local_path=character(), stringsAsFactors=FALSE))
+    }
+
     # Define the path to the .fp_mount.dat file
     fp_mount_file <- path.expand("~/.fp_mount.dat")
 
@@ -3198,192 +3320,336 @@ function(input, output, session) {
   }
 
   observeEvent(input$update_session, {
-    # Clean, normalize, and ensure all paths end with a '/'
-    personal_storage_path <- normalize_and_update_path("personal_storage_path")
-    mount_refit_path <- normalize_and_update_path("mount_refit_path")
-    remote_refit_path <- normalize_and_update_path("remote_refit_path")
-    repository_path_impact <- normalize_and_update_path("repository_path_impact")
-    remote_path_impact <- normalize_and_update_path("remote_path_impact")
-    repository_path_tempo <- normalize_and_update_path("repository_path_tempo")
-    remote_path_tempo <- normalize_and_update_path("remote_path_tempo")
-    repository_path_tcga <- normalize_and_update_path("repository_path_tcga")
-    remote_path_tcga <- normalize_and_update_path("remote_path_tcga")
+    # -------- helpers --------
+    `%||%` <- function(a, b) if (!is.null(a) && nzchar(a)) a else b
+    is_vm_mode <- function() identical(Sys.getenv("FP_MODE", ""), "vm")
 
-    # Update input boxes to reflect the trailing slash
-    updateTextInput(session, "personal_storage_path", value = personal_storage_path)
-    updateTextInput(session, "mount_refit_path", value = mount_refit_path)
-    updateTextInput(session, "remote_refit_path", value = remote_refit_path)
+    # Use your normalizer if present to reflect cleaned values back into the UI
+    norm <- function(id) {
+      if (exists("normalize_and_update_path", mode = "function")) {
+        return(normalize_and_update_path(id))
+      }
+      input[[id]] %||% ""
+    }
+
+    is_valid_path <- function(p) {
+      p <- p %||% ""
+      if (!nzchar(p)) return(FALSE)
+      if (exists("validate_path", mode = "function")) {
+        return(isTRUE(tryCatch(validate_path(p), error = function(e) FALSE)))
+      }
+      dir.exists(p) || file.exists(p)
+    }
+
+    # Restricted roots:
+    # - VM: come from global.config (put into options("fp.restricted_paths") during init)
+    # - Local: your legacy restricted_paths vector (if present), else sane default
+    restricted_roots <- if (is_vm_mode()) {
+      getOption("fp.restricted_paths", default = character(0))
+    } else {
+      if (exists("get_restricted_paths", mode = "function")) get_restricted_paths() else {
+        if (exists("restricted_paths")) restricted_paths else c("/juno/work/ccs/shared/resources/")
+      }
+    }
+
+    is_restricted <- function(p) {
+      if (!nzchar(p) || !length(restricted_roots)) return(FALSE)
+      pp <- normalizePath(p, mustWork = FALSE)
+      any(startsWith(pp, normalizePath(restricted_roots, mustWork = FALSE)))
+    }
+
+    # VM repo defaults placed into options("fp.default_repo_paths") during init
+    get_vm_repo_defaults <- function() {
+      d <- getOption("fp.default_repo_paths", default = NULL)
+      if (is.null(d)) list(impact = "", tcga = "", tempo = "") else d
+    }
+
+    # -------- read + normalize inputs; reflect to UI --------
+    personal_storage_path  <- norm("personal_storage_path")
+    mount_refit_path       <- norm("mount_refit_path")
+    remote_refit_path      <- norm("remote_refit_path")
+
+    repository_path_impact <- norm("repository_path_impact")
+    remote_path_impact     <- norm("remote_path_impact")
+
+    repository_path_tempo  <- norm("repository_path_tempo")
+    remote_path_tempo      <- norm("remote_path_tempo")
+
+    repository_path_tcga   <- norm("repository_path_tcga")
+    remote_path_tcga       <- norm("remote_path_tcga")
+
+    # Mirror normalized values (no-ops if norm() already did it)
+    updateTextInput(session, "personal_storage_path",  value = personal_storage_path)
+    updateTextInput(session, "mount_refit_path",       value = mount_refit_path)
+    updateTextInput(session, "remote_refit_path",      value = remote_refit_path)
+
     updateTextInput(session, "repository_path_impact", value = repository_path_impact)
-    updateTextInput(session, "remote_path_impact", value = remote_path_impact)
-    updateTextInput(session, "repository_path_tempo", value = repository_path_tempo)
-    updateTextInput(session, "remote_path_tempo", value = remote_path_tempo)
-    updateTextInput(session, "repository_path_tcga", value = repository_path_tcga)
-    updateTextInput(session, "remote_path_tcga", value = remote_path_tcga)
+    updateTextInput(session, "remote_path_impact",     value = remote_path_impact)
 
-    # Validate paths
-    valid_personal_storage <- validate_path(personal_storage_path) || (personal_storage_path == "")
-    valid_mount_refit_path <- validate_path(mount_refit_path)
-    valid_remote_refit_path <- validate_path(remote_refit_path)
-    valid_impact_repo <- validate_path(repository_path_impact) && (!input$session_switch_impact || repository_path_impact != "")
-    valid_impact_remote <- validate_path(remote_path_impact) && (!input$session_switch_impact || remote_path_impact != "")
-    valid_tempo_repo <- validate_path(repository_path_tempo) && (!input$session_switch_tempo || repository_path_tempo != "")
-    valid_tempo_remote <- validate_path(remote_path_tempo) && (!input$session_switch_tempo || remote_path_tempo != "")
-    valid_tcga_repo <- validate_path(repository_path_tcga) && (!input$session_switch_tcga || repository_path_tcga != "")
-    valid_tcga_remote <- validate_path(remote_path_tcga) && (!input$session_switch_tcga || remote_path_tcga != "")
+    updateTextInput(session, "repository_path_tempo",  value = repository_path_tempo)
+    updateTextInput(session, "remote_path_tempo",      value = remote_path_tempo)
 
-    # Check if personal_storage_path is a remote file, don't let them write to mounted locations this way.
-    if (is_remote_file(personal_storage_path)) {
-      showNotification("Personal repository cannot be a mounted directory. Use a local directory instead.", type = "error")
-      personal_storage_path <- ""  # Set personal_storage_path to an empty string
-    }
+    updateTextInput(session, "repository_path_tcga",   value = repository_path_tcga)
+    updateTextInput(session, "remote_path_tcga",       value = remote_path_tcga)
 
-    # Check all validations and print errors if any
-    if (!valid_personal_storage){
-      showNotification("Invalid or missing local storage path.", type = "error")
-    }
-    if (!valid_mount_refit_path){
-      showNotification("Invalid or missing mount refit path.", type = "error")
-    }
-    if (!valid_remote_refit_path){
-      showNotification("Invalid or missing remote refit path.", type = "error")
-    }
-    if (!valid_impact_repo) {
-      showNotification("Invalid or missing IMPACT repository path.", type = "error")
-    }
-    if (!valid_impact_remote) {
-      showNotification("Invalid or missing IMPACT remote path when Use Mount is enabled.", type = "error")
-    }
-    if (!valid_tempo_repo) {
-      showNotification("Invalid or missing TEMPO repository path.", type = "error")
-    }
-    if (!valid_tempo_remote) {
-      showNotification("Invalid or missing TEMPO remote path when Use Mount is enabled.", type = "error")
-    }
-    if (!valid_tcga_repo) {
-      showNotification("Invalid or missing TCGA repository path.", type = "error")
-    }
-    if (!valid_tcga_remote) {
-      showNotification("Invalid or missing TCGA remote path when Use Mount is enabled.", type = "error")
-    }
+    # Current toggle states
+    sw_use_mount_impact <- isTRUE(input$session_switch_impact)
+    sw_use_mount_tempo  <- isTRUE(input$session_switch_tempo)
+    sw_use_mount_tcga   <- isTRUE(input$session_switch_tcga)
+    sw_use_mount_refit  <- isTRUE(input$session_remote_refit)
 
-    # Get the mount information
-    mount_df <- get_mount_info()
+    auth_password <- input$auth_password %||% ""
 
-    # Function to check and update paths and switches
-    check_and_update_paths <- function(repo_path, remote_path_id, switch_id, session_remote_path) {
-      for (i in 1:nrow(mount_df)) {
-        if (repo_path == mount_df$local_path[i]) {
-          shinyWidgets::updateSwitchInput(session, switch_id, value = TRUE)
-          updateTextInput(session, remote_path_id, value = mount_df$remote_path[i])
-          session_data[[session_remote_path]] <- mount_df$remote_path[i]
-          #print(paste("MATCHES", mount_df$remote_path[i]))
-          return(TRUE)
+    # -------- VM short-circuit: fill from global.config; identity mapping; switches OFF --------
+    if (is_vm_mode()) {
+      defs <- get_vm_repo_defaults()
+
+      if (!nzchar(repository_path_impact)) repository_path_impact <- defs$impact
+      if (!nzchar(repository_path_tcga))   repository_path_tcga   <- defs$tcga
+      if (!nzchar(repository_path_tempo))  repository_path_tempo  <- defs$tempo
+
+      # Remote == Local in VM
+      remote_path_impact <- repository_path_impact
+      remote_path_tcga   <- repository_path_tcga
+      remote_path_tempo  <- repository_path_tempo
+      remote_refit_path  <- mount_refit_path
+
+      # Force all switches OFF in VM
+      sw_use_mount_impact <- FALSE
+      sw_use_mount_tempo  <- FALSE
+      sw_use_mount_tcga   <- FALSE
+      sw_use_mount_refit  <- FALSE
+      shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = FALSE)
+      shinyWidgets::updateSwitchInput(session, "session_switch_tempo",  value = FALSE)
+      shinyWidgets::updateSwitchInput(session, "session_switch_tcga",   value = FALSE)
+      shinyWidgets::updateSwitchInput(session, "session_remote_refit",  value = FALSE)
+
+      # Reflect possibly-filled defaults
+      updateTextInput(session, "repository_path_impact", value = repository_path_impact)
+      updateTextInput(session, "remote_path_impact",     value = remote_path_impact)
+      updateTextInput(session, "repository_path_tempo",  value = repository_path_tempo)
+      updateTextInput(session, "remote_path_tempo",      value = remote_path_tempo)
+      updateTextInput(session, "repository_path_tcga",   value = repository_path_tcga)
+      updateTextInput(session, "remote_path_tcga",       value = remote_path_tcga)
+      updateTextInput(session, "remote_refit_path",      value = remote_refit_path)
+
+    } else {
+      # -------- LOCAL: auto-detect mounts; if repo == a local mount root, flip switch ON & fill remote --------
+      if (exists("get_mount_info", mode = "function")) {
+        mt <- tryCatch(get_mount_info(), error = function(e) NULL)
+        if (is.data.frame(mt) && nrow(mt) > 0) {
+          # Helper: if local repo matches a row, flip ON and set remote
+          promote_map <- function(repo_path, remote_id, switch_id, switch_flag_name) {
+            if (!nzchar(repo_path)) return(invisible(NULL))
+            hit <- which(mt$local_path == repo_path)[1]
+            if (length(hit) == 1 && !is.na(hit)) {
+              rp <- mt$remote_path[hit] %||% ""
+              if (nzchar(rp)) {
+                updateTextInput(session, remote_id, value = rp)
+                shinyWidgets::updateSwitchInput(session, switch_id, value = TRUE)
+                # set the local variable switch flags too
+                if (switch_flag_name == "impact") sw_use_mount_impact <<- TRUE
+                if (switch_flag_name == "tempo")  sw_use_mount_tempo  <<- TRUE
+                if (switch_flag_name == "tcga")   sw_use_mount_tcga   <<- TRUE
+                if (switch_flag_name == "refit")  sw_use_mount_refit  <<- TRUE
+                assign(paste0("remote_path_", switch_flag_name), rp, inherits = TRUE)
+              }
+            }
+          }
+
+          promote_map(repository_path_impact, "remote_path_impact", "session_switch_impact", "impact")
+          promote_map(repository_path_tempo,  "remote_path_tempo",  "session_switch_tempo",  "tempo")
+          promote_map(repository_path_tcga,   "remote_path_tcga",   "session_switch_tcga",   "tcga")
+          promote_map(mount_refit_path,       "remote_refit_path",  "session_remote_refit",  "refit")
         }
       }
-      return(FALSE)
     }
 
-    # Check and update for each repository path
-    check_and_update_paths(mount_refit_path, "remote_refit_path", "session_remote_refit", "remote_refit_path")
-    check_and_update_paths(repository_path_impact, "remote_path_impact", "session_switch_impact", "remote_path_impact")
-    check_and_update_paths(repository_path_tempo, "remote_path_tempo", "session_switch_tempo", "remote_path_tempo")
-    check_and_update_paths(repository_path_tcga, "remote_path_tcga", "session_switch_tcga", "remote_path_tcga")
-
-
-    # Only proceed if all paths are valid and no matches were found
-    if (valid_personal_storage && valid_mount_refit_path && valid_remote_refit_path && valid_impact_repo && valid_impact_remote && valid_tempo_repo && valid_tempo_remote && valid_tcga_repo && valid_tcga_remote) {
-
-      # Use plain text password
-      plain_text_password <- input$auth_password
-
-      # Update the reactiveValues object with the current inputs
-      session_data$personal_storage_path <- personal_storage_path
-
-      session_data$mount_refit_path <- mount_refit_path
-      session_data$remote_refit_path <- remote_refit_path
-      session_data$session_remote_refit <- input$session_remote_refit
-
-      session_data$repository_path_impact <- repository_path_impact
-      session_data$remote_path_impact <- remote_path_impact
-      session_data$session_switch_impact <- input$session_switch_impact
-
-      session_data$repository_path_tempo <- repository_path_tempo
-      session_data$remote_path_tempo <- remote_path_tempo
-      session_data$session_switch_tempo <- input$session_switch_tempo
-
-      session_data$repository_path_tcga <- repository_path_tcga
-      session_data$remote_path_tcga <- remote_path_tcga
-      session_data$session_switch_tcga <- input$session_switch_tcga
-
-      session_data$auth_password <- plain_text_password  # Store the plain text password
-
-      # Write the session data to a file
-      session_data_df <- data.frame(
-        personal_storage_path = session_data$personal_storage_path %||% "",
-        mount_refit_path = session_data$mount_refit_path %||% "",
-        remote_refit_path = session_data$remote_refit_path %||% "",
-        session_remote_refit = session_data$session_remote_refit %||% "",
-        repository_path_impact = session_data$repository_path_impact %||% "",
-        remote_path_impact = session_data$remote_path_impact %||% "",
-        session_switch_impact = session_data$session_switch_impact %||% "",
-        repository_path_tempo = session_data$repository_path_tempo %||% "",
-        remote_path_tempo = session_data$remote_path_tempo %||% "",
-        session_switch_tempo = session_data$session_switch_tempo %||% "",
-        repository_path_tcga = session_data$repository_path_tcga %||% "",
-        remote_path_tcga = session_data$remote_path_tcga %||% "",
-        session_switch_tcga = session_data$session_switch_tcga %||% "",
-        auth_password = session_data$auth_password %||% "",
-        password_valid = session_data$password_valid %||% "",
-        password_personal = session_data$password_personal %||% "",
-        stringsAsFactors = FALSE
-      )
-      write.table(session_data_df, file = fp_session_path(), row.names = FALSE, col.names = TRUE, sep = "\t")
-
-      # Show a green notification that the session data was saved
-      showNotification(c("Session data saved to ",fp_session_path()), type = "message")
-
-      # Get the mount information
-      juno_lines <- get_mount_info()
-
-    }
-
-
-    # Check if the hashed password matches the valid hashed password, only if a password is provided and any Use Mount is enabled
-    if (input$auth_password != "" && (input$session_switch_impact || input$session_switch_tempo || input$session_switch_tcga)) {
-      hashed_password <- digest::digest(input$auth_password, algo = "sha256")
-      session_data$auth_password <- hashed_password
-      if (session_data$auth_password == valid_hashed_password) {
-        session_data$password_valid <- 1
-        showNotification("Authenticated for full access.", type = "message")
-        #print("match")
-      } else {
-        session_data$password_valid <- 0
-        #print("not match")
+    # -------- VALIDATIONS --------
+    # Personal storage: allow empty. If provided in LOCAL mode, it must NOT be a mounted remote.
+    valid_personal_storage <- (personal_storage_path == "") || is_valid_path(personal_storage_path)
+    if (!is_vm_mode() && valid_personal_storage && exists("is_remote_file", mode = "function")) {
+      if (isTRUE(tryCatch(is_remote_file(personal_storage_path), error = function(e) FALSE))) {
+        showNotification("Personal repository cannot be a mounted directory. Use a local directory instead.",
+                         type = "error")
+        personal_storage_path <- ""
+        updateTextInput(session, "personal_storage_path", value = "")
+        valid_personal_storage <- TRUE
       }
-      if (session_data$auth_password == valid_personal_password) {
-        session_data$password_personal <- 1
-        showNotification("Authenticated for personal refits.", type = "message")
-        #print("match")
+    }
+
+    # For each repo group in LOCAL mode:
+    # - If Use Mount is OFF, both repo & remote are considered valid (even empty).
+    # - If Use Mount is ON, both repo and remote must be non-empty & valid paths.
+    # In VM mode we already short-circuited: remote mirrors repo and switches are OFF.
+    validate_pair <- function(repo, remote, sw_on) {
+      if (!sw_on) return(list(repo = TRUE, remote = TRUE))
+      list(
+        repo   = nzchar(repo)   && is_valid_path(repo),
+        remote = nzchar(remote) && is_valid_path(remote)
+      )
+    }
+
+    if (!is_vm_mode()) {
+      vi <- validate_pair(repository_path_impact, remote_path_impact, sw_use_mount_impact)
+      vt <- validate_pair(repository_path_tempo,  remote_path_tempo,  sw_use_mount_tempo)
+      vc <- validate_pair(repository_path_tcga,   remote_path_tcga,   sw_use_mount_tcga)
+      vr <- validate_pair(mount_refit_path,       remote_refit_path,  sw_use_mount_refit)
+    } else {
+      # VM: lenient (switches are OFF anyway). Just check repo exists if provided.
+      vi <- list(repo = (repository_path_impact == "" || is_valid_path(repository_path_impact)), remote = TRUE)
+      vt <- list(repo = (repository_path_tempo  == "" || is_valid_path(repository_path_tempo)),  remote = TRUE)
+      vc <- list(repo = (repository_path_tcga   == "" || is_valid_path(repository_path_tcga)),   remote = TRUE)
+      vr <- list(repo = is_valid_path(mount_refit_path) || (mount_refit_path == ""),
+                 remote = TRUE)
+    }
+
+    # Build error message if anything invalid
+    if (!all(c(
+      valid_personal_storage,
+      vi$repo, vi$remote, vt$repo, vt$remote, vc$repo, vc$remote, vr$repo, vr$remote
+    ))) {
+      msg <- paste(
+        c(
+          if (!valid_personal_storage) "Invalid or missing local storage path." else NULL,
+          if (!vi$repo) "Invalid or missing IMPACT repository path." else NULL,
+          if (!vi$remote) "Invalid or missing IMPACT remote path when Use Mount is enabled." else NULL,
+          if (!vt$repo) "Invalid or missing TEMPO repository path." else NULL,
+          if (!vt$remote) "Invalid or missing TEMPO remote path when Use Mount is enabled." else NULL,
+          if (!vc$repo) "Invalid or missing TCGA repository path." else NULL,
+          if (!vc$remote) "Invalid or missing TCGA remote path when Use Mount is enabled." else NULL,
+          if (!vr$repo) "Invalid or missing mount refit path." else NULL,
+          if (!vr$remote) "Invalid or missing remote refit path when Use Mount is enabled." else NULL
+        ),
+        collapse = "\n"
+      )
+      showNotification(msg, type = "error", duration = 8)
+      return()
+    }
+
+    # -------- RESTRICTED PATHS + PASSWORD (LOCAL ONLY) --------
+    restricted_hits <- character(0)
+    if (!is_vm_mode()) {
+      if (sw_use_mount_impact && nzchar(remote_path_impact) && is_restricted(remote_path_impact)) {
+        restricted_hits <- c(restricted_hits, "IMPACT remote")
+      }
+      if (sw_use_mount_tempo && nzchar(remote_path_tempo) && is_restricted(remote_path_tempo)) {
+        restricted_hits <- c(restricted_hits, "TEMPO remote")
+      }
+      if (sw_use_mount_tcga && nzchar(remote_path_tcga) && is_restricted(remote_path_tcga)) {
+        restricted_hits <- c(restricted_hits, "TCGA remote")
+      }
+      if (sw_use_mount_refit && nzchar(remote_refit_path) && is_restricted(remote_refit_path)) {
+        restricted_hits <- c(restricted_hits, "Refit remote")
+      }
+
+      # Your original password behavior: only check if a password was provided AND any Use Mount is ON
+      if (nzchar(auth_password) && (sw_use_mount_impact || sw_use_mount_tempo || sw_use_mount_tcga)) {
+        hashed_password <- digest::digest(auth_password, algo = "sha256")
+
+        session_data$auth_password     <- hashed_password
+        session_data$password_valid    <- if (identical(hashed_password, valid_hashed_password)) 1 else 0
+        session_data$password_personal <- if (identical(hashed_password, valid_personal_password)) 1 else 0
+
+        if (session_data$password_valid == 1) {
+          showNotification("Authenticated for full access.", type = "message")
+        }
+        if (session_data$password_personal == 1) {
+          showNotification("Authenticated for personal refits.", type = "message")
+        }
+        if (session_data$password_valid != 1 && session_data$password_personal != 1) {
+          showNotification("Invalid password.", type = "error")
+        }
       } else {
+        session_data$password_valid    <- 0
         session_data$password_personal <- 0
       }
-      if (session_data$password_valid != 1 && session_data$password_personal != 1)
-      {
-        showNotification("Invalid password.", type = "error")
+
+      # If there are restricted hits and the user is NOT authenticated, show a single error
+      if (length(restricted_hits) > 0 && session_data$password_valid != 1) {
+        showNotification(
+          paste0("Restricted path(s): ", paste(restricted_hits, collapse = ", "),
+                 ". Authenticate on the Session tab to enable access."),
+          type = "error", duration = 8
+        )
+        # We still allow saving the session file below; this just informs about restricted areas.
       }
     } else {
-      session_data$password_valid <- 0
+      # VM: reset auth flags (no sshfs / restricted checks here for now)
+      session_data$password_valid    <- 0
       session_data$password_personal <- 0
     }
 
-    # Print all values to the console for debugging
-    #print(session_data)
+    # -------- persist reactive + write TSV session file --------
+    session_data$personal_storage_path <- personal_storage_path
 
+    session_data$mount_refit_path       <- mount_refit_path
+    session_data$remote_refit_path      <- remote_refit_path
+    session_data$session_remote_refit   <- sw_use_mount_refit
+
+    session_data$repository_path_impact <- repository_path_impact
+    session_data$remote_path_impact     <- remote_path_impact
+    session_data$session_switch_impact  <- sw_use_mount_impact
+
+    session_data$repository_path_tempo  <- repository_path_tempo
+    session_data$remote_path_tempo      <- remote_path_tempo
+    session_data$session_switch_tempo   <- sw_use_mount_tempo
+
+    session_data$repository_path_tcga   <- repository_path_tcga
+    session_data$remote_path_tcga       <- remote_path_tcga
+    session_data$session_switch_tcga    <- sw_use_mount_tcga
+
+    # Store plain text password in the TSV like before (your reader re-hashes later where needed)
+    session_data$auth_password <- auth_password
+
+    out_df <- data.frame(
+      personal_storage_path = session_data$personal_storage_path %||% "",
+      mount_refit_path      = session_data$mount_refit_path %||% "",
+      remote_refit_path     = session_data$remote_refit_path %||% "",
+      session_remote_refit  = session_data$session_remote_refit %||% FALSE,
+
+      repository_path_impact = session_data$repository_path_impact %||% "",
+      remote_path_impact     = session_data$remote_path_impact %||% "",
+      session_switch_impact  = session_data$session_switch_impact %||% FALSE,
+
+      repository_path_tempo  = session_data$repository_path_tempo %||% "",
+      remote_path_tempo      = session_data$remote_path_tempo %||% "",
+      session_switch_tempo   = session_data$session_switch_tempo %||% FALSE,
+
+      repository_path_tcga   = session_data$repository_path_tcga %||% "",
+      remote_path_tcga       = session_data$remote_path_tcga %||% "",
+      session_switch_tcga    = session_data$session_switch_tcga %||% FALSE,
+
+      auth_password          = session_data$auth_password %||% "",
+      password_valid         = session_data$password_valid %||% 0,
+      password_personal      = session_data$password_personal %||% 0,
+      stringsAsFactors = FALSE
+    )
+
+    write.table(out_df,
+                file = fp_session_path(),
+                sep = "\t", row.names = FALSE, col.names = TRUE, quote = FALSE)
+
+    showNotification(paste0("Session data saved to ", fp_session_path()),
+                     type = "message", duration = 3)
   })
+
+
+
+
 
   observeEvent(input$continue_session, {
     # Simulate a click on the update_session button
     shinyjs::click("update_session")
+
+    if (is_vm_mode()) {
+      updateTextInput(session, "remote_path_impact", value = input$repository_path_impact %||% "")
+      shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = FALSE)
+
+      session_data$repository_path_impact <- input$repository_path_impact %||% ""
+      session_data$remote_path_impact     <- input$repository_path_impact %||% ""
+      session_data$session_switch_impact  <- FALSE
+    }
 
     # Move to the next tab after a short delay to ensure the update_session logic runs first
     later::later(function() {

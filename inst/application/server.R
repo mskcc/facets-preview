@@ -162,6 +162,8 @@ function(input, output, session) {
   selected_counts_file <- reactiveVal(NULL)
   skipSampleChange <- reactiveVal(FALSE)
 
+  vm_prefilled <- reactiveVal(FALSE)
+
   restricted_paths <- get_restricted_paths()
 
   session_data <- reactiveValues(
@@ -205,30 +207,37 @@ function(input, output, session) {
   personal_repo_meta_file <- fp_personal_path()
   initial_session_data <- read_session_data(session_data_file)
 
-  if (is_vm_mode()) {
+  observeEvent(TRUE, {
+    if (!is_vm_mode() || vm_prefilled()) return()
+
     defs <- get_vm_repo_defaults()
 
     # IMPACT
-    if (!nzchar(input$repository_path_impact)) {
+    if (!nzchar(input$repository_path_impact) && nzchar(defs$impact)) {
       updateTextInput(session, "repository_path_impact", value = defs$impact)
       updateTextInput(session, "remote_path_impact",     value = defs$impact)
       shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = FALSE)
     }
+
     # TCGA
-    if (!nzchar(input$repository_path_tcga)) {
+    if (!nzchar(input$repository_path_tcga) && nzchar(defs$tcga)) {
       updateTextInput(session, "repository_path_tcga", value = defs$tcga)
       updateTextInput(session, "remote_path_tcga",     value = defs$tcga)
       shinyWidgets::updateSwitchInput(session, "session_switch_tcga", value = FALSE)
     }
-    # TEMPO (optional/empty OK)
+
+    # TEMPO (optional)
     if (!nzchar(input$repository_path_tempo) && nzchar(defs$tempo)) {
       updateTextInput(session, "repository_path_tempo", value = defs$tempo)
       updateTextInput(session, "remote_path_tempo",     value = defs$tempo)
       shinyWidgets::updateSwitchInput(session, "session_switch_tempo", value = FALSE)
     }
-    # Refit toggle off by default in VM
-    shinyWidgets::updateSwitchInput(session, "session_remote_refit", value = FALSE)
-  }
+
+    # Refit: mirror local→remote (leave empty if local empty)
+    updateTextInput(session, "remote_refit_path", value = (input$mount_refit_path %||% ""))
+
+    vm_prefilled(TRUE)
+  }, once = TRUE, ignoreInit = FALSE)
 
 
   if (!is.null(initial_session_data)) {

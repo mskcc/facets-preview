@@ -212,119 +212,12 @@ function(input, output, session) {
   personal_repo_meta_file <- fp_personal_path()
   initial_session_data <- read_session_data(session_data_file)
 
-  # ---- VM: Prefill repo + personal paths after inputs are ready, with a retry ----
-  # Runs once; tries up to 10 times (every 150ms) until fields are populated or defaults applied.
-  local({
-    if (!is_vm_mode()) return()
-
-    attempts <- 0L
-    max_attempts <- 10L
-
-    prefill_once <- function() {
-      attempts <<- attempts + 1L
-
-      defs <- get_vm_repo_defaults()
-
-      # Repos
-      if (!nzchar(isolate(input$repository_path_impact)) && nzchar(defs$impact)) {
-        updateTextInput(session, "repository_path_impact", value = defs$impact)
-        updateTextInput(session, "remote_path_impact",     value = defs$impact)
-      }
-      if (!nzchar(isolate(input$repository_path_tcga)) && nzchar(defs$tcga)) {
-        updateTextInput(session, "repository_path_tcga", value = defs$tcga)
-        updateTextInput(session, "remote_path_tcga",     value = defs$tcga)
-      }
-      if (!nzchar(isolate(input$repository_path_tempo)) && nzchar(defs$tempo)) {
-        updateTextInput(session, "repository_path_tempo", value = defs$tempo)
-        updateTextInput(session, "remote_path_tempo",     value = defs$tempo)
-      }
-
-      # Refit
-      updateTextInput(session, "remote_refit_path", value = (isolate(input$mount_refit_path) %||% ""))
-
-      # Personal storage: <store_dir>/personal/
-      if (!nzchar(isolate(input$personal_storage_path))) {
-        base <- fp_store_dir()
-        if (nzchar(base)) {
-          personal_dir <- file.path(base, "personal")
-          dir.create(personal_dir, recursive = TRUE, showWarnings = FALSE)
-          if (!grepl("/$", personal_dir)) personal_dir <- paste0(personal_dir, "/")
-          updateTextInput(session, "personal_storage_path", value = personal_dir)
-          session_data$personal_storage_path <- personal_dir
-        }
-      }
-
-      # Force switches OFF in VM
-      shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = FALSE)
-      shinyWidgets::updateSwitchInput(session, "session_switch_tempo",  value = FALSE)
-      shinyWidgets::updateSwitchInput(session, "session_switch_tcga",   value = FALSE)
-      shinyWidgets::updateSwitchInput(session, "session_remote_refit",  value = FALSE)
-
-      # Retry if still blank (rare first-paint timing)
-      done <- nzchar(isolate(input$repository_path_impact)) ||
-        nzchar(isolate(input$repository_path_tcga))   ||
-        nzchar(isolate(input$repository_path_tempo))  ||
-        nzchar(isolate(input$personal_storage_path))
-
-      if (!done && attempts < max_attempts) {
-        if (requireNamespace("later", quietly = TRUE)) {
-          later::later(prefill_once, delay = 0.15)  # 150 ms
-        } else {
-          # If later isn't available, just stop retrying
-          message("[FP] 'later' not available; skipping prefill retries.")
-        }
-      }
-    }
-
-    session$onFlushed(function() prefill_once(), once = TRUE)
-  })
 
 
 
-  observeEvent(TRUE, {
-    if (!is_vm_mode() || vm_prefilled()) return()
 
-    defs <- get_vm_repo_defaults()
 
-    # IMPACT
-    if (!nzchar(input$repository_path_impact) && nzchar(defs$impact)) {
-      updateTextInput(session, "repository_path_impact", value = defs$impact)
-      updateTextInput(session, "remote_path_impact",     value = defs$impact)
-      shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = FALSE)
-    }
 
-    # TCGA
-    if (!nzchar(input$repository_path_tcga) && nzchar(defs$tcga)) {
-      updateTextInput(session, "repository_path_tcga", value = defs$tcga)
-      updateTextInput(session, "remote_path_tcga",     value = defs$tcga)
-      shinyWidgets::updateSwitchInput(session, "session_switch_tcga", value = FALSE)
-    }
-
-    # TEMPO (optional)
-    if (!nzchar(input$repository_path_tempo) && nzchar(defs$tempo)) {
-      updateTextInput(session, "repository_path_tempo", value = defs$tempo)
-      updateTextInput(session, "remote_path_tempo",     value = defs$tempo)
-      shinyWidgets::updateSwitchInput(session, "session_switch_tempo", value = FALSE)
-    }
-
-    # Refit: mirror local→remote (leave empty if local empty)
-    updateTextInput(session, "remote_refit_path", value = (input$mount_refit_path %||% ""))
-
-    vm_prefilled(TRUE)
-  }, once = TRUE, ignoreInit = FALSE)
-
-  # Auto-fill personal_storage_path in VM mode if empty
-  observeEvent(TRUE, {
-    if (!is_vm_mode()) return()              # VM-only
-    if (nzchar(input$personal_storage_path)) return()  # user/session already set
-
-    ps <- fp_store_dir()
-    if (nzchar(ps)) {
-      if (!grepl("/$", ps)) ps <- paste0(ps, "/")
-      updateTextInput(session, "personal_storage_path", value = ps)
-      session_data$personal_storage_path <- ps
-    }
-  }, once = TRUE, ignoreInit = FALSE)
 
 
 
@@ -375,52 +268,53 @@ function(input, output, session) {
 
   }
 
-  # VM: after inputs are restored from session file, prefill defaults if still blank
-  session$onFlushed(function() {
+  # ---- VM: apply defaults if inputs still blank (runs once, no onFlushed/later) ----
+  local({
     if (!is_vm_mode()) return()
 
     defs <- get_vm_repo_defaults()
 
-    # --- Repos: fill from global.config if still blank ---
-    if (!nzchar(isolate(input$repository_path_impact)) && nzchar(defs$impact)) {
-      updateTextInput(session, "repository_path_impact", value = defs$impact)
-      updateTextInput(session, "remote_path_impact",     value = defs$impact)
-    }
-    if (!nzchar(isolate(input$repository_path_tcga)) && nzchar(defs$tcga)) {
-      updateTextInput(session, "repository_path_tcga", value = defs$tcga)
-      updateTextInput(session, "remote_path_tcga",     value = defs$tcga)
-    }
-    if (!nzchar(isolate(input$repository_path_tempo)) && nzchar(defs$tempo)) {
-      updateTextInput(session, "repository_path_tempo", value = defs$tempo)
-      updateTextInput(session, "remote_path_tempo",     value = defs$tempo)
+    set_if_blank <- function(id, value) {
+      val <- isolate(input[[id]])
+      if (!nzchar(val) && nzchar(value)) {
+        updateTextInput(session, id, value = value)
+        TRUE
+      } else {
+        FALSE
+      }
     }
 
-    # Refit: mirror local→remote (leave empty if local empty)
-    updateTextInput(session, "remote_refit_path", value = (isolate(input$mount_refit_path) %||% ""))
+    # Repos from global.config (only if still blank after session restore)
+    imp_set  <- set_if_blank("repository_path_impact", defs$impact %||% "")
+    if (imp_set) updateTextInput(session, "remote_path_impact", value = defs$impact %||% "")
 
-    # --- Personal storage: default to <store_dir>/personal/ if still blank ---
+    tcga_set <- set_if_blank("repository_path_tcga",   defs$tcga   %||% "")
+    if (tcga_set) updateTextInput(session, "remote_path_tcga",   value = defs$tcga   %||% "")
+
+    tempo_set <- set_if_blank("repository_path_tempo",  defs$tempo  %||% "")
+    if (tempo_set) updateTextInput(session, "remote_path_tempo",  value = defs$tempo  %||% "")
+
+    # Personal storage defaults to <store_dir>/personal/ if still blank after session restore
     if (!nzchar(isolate(input$personal_storage_path))) {
-      base <- fp_store_dir()
+      base <- fp_store_dir() %||% ""
       if (nzchar(base)) {
         personal_dir <- file.path(base, "personal")
-        # create if missing
         dir.create(personal_dir, recursive = TRUE, showWarnings = FALSE)
-        # ensure trailing slash
         if (!grepl("/$", personal_dir)) personal_dir <- paste0(personal_dir, "/")
-
         updateTextInput(session, "personal_storage_path", value = personal_dir)
         session_data$personal_storage_path <- personal_dir
       }
     }
+
+    # Refit remote mirrors local (VM shows as hidden/disabled anyway)
+    updateTextInput(session, "remote_refit_path", value = (isolate(input$mount_refit_path) %||% ""))
 
     # Force all mount switches OFF visually in VM
     shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = FALSE)
     shinyWidgets::updateSwitchInput(session, "session_switch_tempo",  value = FALSE)
     shinyWidgets::updateSwitchInput(session, "session_switch_tcga",   value = FALSE)
     shinyWidgets::updateSwitchInput(session, "session_remote_refit",  value = FALSE)
-  }, once = TRUE)
-
-
+  })
 
 
   observe({
@@ -601,9 +495,9 @@ function(input, output, session) {
 
 
   output$fp_session_banner <- renderUI({
-    # helpers
     null_if_empty <- function(x) if (nzchar(x)) x else "null"
     show_or_unset <- function(x) if (nzchar(x)) x else "(unset)"
+
     # env vars
     fp_mode              <- Sys.getenv("FP_MODE", "")
     fp_user_id           <- Sys.getenv("FP_USER_ID", "")
@@ -621,12 +515,18 @@ function(input, output, session) {
 
     vm_rows <- list()
     if (is_vm_mode()) {
-      # read-only display of resolved paths in VM mode
+      defs <- get_vm_repo_defaults()
+      # fall back to VM defaults if inputs are still blank at first render
+      imp <- isolate(input$repository_path_impact); if (!nzchar(imp)) imp <- defs$impact %||% ""
+      tcg <- isolate(input$repository_path_tcga);   if (!nzchar(tcg)) tcg <- defs$tcga   %||% ""
+      tmp <- isolate(input$repository_path_tempo);  if (!nzchar(tmp)) tmp <- defs$tempo  %||% ""
+      rft <- isolate(input$mount_refit_path) %||% ""
+
       vm_rows <- list(
-        list(label = "IMPACT Path", value = show_or_unset(isolate(input$repository_path_impact %||% ""))),
-        list(label = "TCGA Path",   value = show_or_unset(isolate(input$repository_path_tcga   %||% ""))),
-        list(label = "TEMPO Path",  value = show_or_unset(isolate(input$repository_path_tempo  %||% ""))),
-        list(label = "Refit Path",  value = show_or_unset(isolate(input$mount_refit_path       %||% "")))
+        list(label = "IMPACT Path", value = show_or_unset(imp)),
+        list(label = "TCGA Path",   value = show_or_unset(tcg)),
+        list(label = "TEMPO Path",  value = show_or_unset(tmp)),
+        list(label = "Refit Path",  value = show_or_unset(rft))
       )
     }
 
@@ -649,6 +549,7 @@ function(input, output, session) {
       )
     )
   })
+
 
 
 
@@ -3493,10 +3394,6 @@ function(input, output, session) {
     return(path)
   }
 
-
-  `%||%` <- function(a, b) {
-    if (!is.null(a)) a else b
-  }
 
   observeEvent(input$update_session, {
     # -------- helpers --------

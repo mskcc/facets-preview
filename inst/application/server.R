@@ -223,10 +223,9 @@ function(input, output, session) {
     prefill_once <- function() {
       attempts <<- attempts + 1L
 
-      # Defaults from global.config
       defs <- get_vm_repo_defaults()
 
-      # Repos: if still blank AFTER session file restore, fill from defs
+      # Repos
       if (!nzchar(isolate(input$repository_path_impact)) && nzchar(defs$impact)) {
         updateTextInput(session, "repository_path_impact", value = defs$impact)
         updateTextInput(session, "remote_path_impact",     value = defs$impact)
@@ -240,10 +239,10 @@ function(input, output, session) {
         updateTextInput(session, "remote_path_tempo",     value = defs$tempo)
       }
 
-      # Refit: mirror local -> remote
+      # Refit
       updateTextInput(session, "remote_refit_path", value = (isolate(input$mount_refit_path) %||% ""))
 
-      # Personal storage: default to <store_dir>/personal/ if still blank
+      # Personal storage: <store_dir>/personal/
       if (!nzchar(isolate(input$personal_storage_path))) {
         base <- fp_store_dir()
         if (nzchar(base)) {
@@ -255,27 +254,31 @@ function(input, output, session) {
         }
       }
 
-      # Force all mount switches OFF visually in VM
+      # Force switches OFF in VM
       shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = FALSE)
       shinyWidgets::updateSwitchInput(session, "session_switch_tempo",  value = FALSE)
       shinyWidgets::updateSwitchInput(session, "session_switch_tcga",   value = FALSE)
       shinyWidgets::updateSwitchInput(session, "session_remote_refit",  value = FALSE)
 
-      # If still blank retry
-      done <-
-        nzchar(isolate(input$repository_path_impact)) ||
+      # Retry if still blank (rare first-paint timing)
+      done <- nzchar(isolate(input$repository_path_impact)) ||
         nzchar(isolate(input$repository_path_tcga))   ||
         nzchar(isolate(input$repository_path_tempo))  ||
         nzchar(isolate(input$personal_storage_path))
 
       if (!done && attempts < max_attempts) {
-        shiny::later(prefill_once, delay = 0.15)  # 150ms
+        if (requireNamespace("later", quietly = TRUE)) {
+          later::later(prefill_once, delay = 0.15)  # 150 ms
+        } else {
+          # If later isn't available, just stop retrying
+          message("[FP] 'later' not available; skipping prefill retries.")
+        }
       }
     }
 
-    # Kick off after UI is flushed
     session$onFlushed(function() prefill_once(), once = TRUE)
   })
+
 
 
   observeEvent(TRUE, {

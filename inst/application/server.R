@@ -108,6 +108,11 @@ init_fp_paths <- function() {
     )
     options("fp.default_repo_paths" = opts_repo)
 
+    message("[FP] VM init: repo defaults = ", paste(
+      sprintf("impact=%s, tcga=%s, tempo=%s", opts_repo$impact, opts_repo$tcga, opts_repo$tempo),
+      collapse=""
+    ))
+
     # legacy symlinks
     try({
       home_session  <- path.expand("~/.fp_session.dat")
@@ -301,21 +306,49 @@ function(input, output, session) {
 
   }
 
-  # ---- VM-only: after we restore from session file, autofill personal_storage_path if still blank ----
+  # VM: after inputs are restored from session file, prefill defaults if still blank
   session$onFlushed(function() {
     if (!is_vm_mode()) return()
 
-    # Prefer the session file value
-    if (nzchar(isolate(input$personal_storage_path))) return()
+    defs <- get_vm_repo_defaults()
 
-    # Otherwise, default to the per-user VM store_dir
-    ps <- fp_store_dir()
-    if (nzchar(ps)) {
-      if (!grepl("/$", ps)) ps <- paste0(ps, "/")
-      updateTextInput(session, "personal_storage_path", value = ps)
-      session_data$personal_storage_path <- ps
+    # --- Repos: fill from global.config if still blank ---
+    # IMPACT
+    if (!nzchar(isolate(input$repository_path_impact)) && nzchar(defs$impact)) {
+      updateTextInput(session, "repository_path_impact", value = defs$impact)
+      updateTextInput(session, "remote_path_impact",     value = defs$impact)
     }
+    # TCGA
+    if (!nzchar(isolate(input$repository_path_tcga)) && nzchar(defs$tcga)) {
+      updateTextInput(session, "repository_path_tcga", value = defs$tcga)
+      updateTextInput(session, "remote_path_tcga",     value = defs$tcga)
+    }
+    # TEMPO (optional)
+    if (!nzchar(isolate(input$repository_path_tempo)) && nzchar(defs$tempo)) {
+      updateTextInput(session, "repository_path_tempo", value = defs$tempo)
+      updateTextInput(session, "remote_path_tempo",     value = defs$tempo)
+    }
+
+    # Refit: mirror local→remote (leave empty if local empty)
+    updateTextInput(session, "remote_refit_path", value = (isolate(input$mount_refit_path) %||% ""))
+
+    # --- Personal storage: default to store_dir if still blank ---
+    if (!nzchar(isolate(input$personal_storage_path))) {
+      ps <- fp_store_dir()
+      if (nzchar(ps)) {
+        if (!grepl("/$", ps)) ps <- paste0(ps, "/")
+        updateTextInput(session, "personal_storage_path", value = ps)
+        session_data$personal_storage_path <- ps
+      }
+    }
+
+    # Force all mount switches OFF visually in VM
+    shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = FALSE)
+    shinyWidgets::updateSwitchInput(session, "session_switch_tempo",  value = FALSE)
+    shinyWidgets::updateSwitchInput(session, "session_switch_tcga",   value = FALSE)
+    shinyWidgets::updateSwitchInput(session, "session_remote_refit",  value = FALSE)
   }, once = TRUE)
+
 
 
   observe({

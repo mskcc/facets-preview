@@ -120,6 +120,7 @@ ui <-
                        column(10,
                               # Repository Configuration: IMPACT
                               div(
+                                id = "section_impact",
                                 h5("Repository Configuration: IMPACT", style = "font-weight: bold; color: black;"),
                                 div(
                                   style = "padding-left: 20px;",
@@ -152,6 +153,7 @@ ui <-
                               conditionalPanel(
                                 condition = "false",  # Always hides the panel
                                 div(
+                                  id = "section_tempo",
                                   h5("Repository Configuration: TEMPO", style = "font-weight: bold; color: black;"),
                                   div(
                                     style = "padding-left: 20px;",
@@ -183,6 +185,7 @@ ui <-
 
                               # Repository Configuration: TCGA
                               div(
+                                id = "section_tcga",
                                 h5("Repository Configuration: TCGA", style = "font-weight: bold; color: black;"),
                                 div(
                                   style = "padding-left: 20px;",
@@ -213,6 +216,7 @@ ui <-
 
                               # Remote Refit Path
                               div(
+                                id = "section_refit",
                                 h5("Mounted Refits: ", style = "font-weight: bold; color: black;"),
                                 div(
                                   style = "padding-left: 20px;",

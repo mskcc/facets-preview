@@ -239,6 +239,20 @@ function(input, output, session) {
     vm_prefilled(TRUE)
   }, once = TRUE, ignoreInit = FALSE)
 
+  # Auto-fill personal_storage_path in VM mode if empty
+  observeEvent(TRUE, {
+    if (!is_vm_mode()) return()              # VM-only
+    if (nzchar(input$personal_storage_path)) return()  # user/session already set
+
+    ps <- fp_store_dir()
+    if (nzchar(ps)) {
+      if (!grepl("/$", ps)) ps <- paste0(ps, "/")
+      updateTextInput(session, "personal_storage_path", value = ps)
+      session_data$personal_storage_path <- ps
+    }
+  }, once = TRUE, ignoreInit = FALSE)
+
+
 
   if (!is.null(initial_session_data)) {
 
@@ -286,6 +300,23 @@ function(input, output, session) {
     session_data$password_personal <- 0 #Always assume the password is invalid when reading the file.
 
   }
+
+  # ---- VM-only: after we restore from session file, autofill personal_storage_path if still blank ----
+  session$onFlushed(function() {
+    if (!is_vm_mode()) return()
+
+    # Prefer the session file value
+    if (nzchar(isolate(input$personal_storage_path))) return()
+
+    # Otherwise, default to the per-user VM store_dir
+    ps <- fp_store_dir()
+    if (nzchar(ps)) {
+      if (!grepl("/$", ps)) ps <- paste0(ps, "/")
+      updateTextInput(session, "personal_storage_path", value = ps)
+      session_data$personal_storage_path <- ps
+    }
+  }, once = TRUE)
+
 
   observe({
     values$config_file = ifelse( exists("facets_preview_config_file"), facets_preview_config_file, "<not set>")
@@ -434,61 +465,86 @@ function(input, output, session) {
     # no-op; keeps a spot if you later want reactivity
   })
 
-  output$fp_session_banner <- renderUI({
-    # Helper: return env var or "null" when unset/empty
-    env_or_null <- function(key) {
-      val <- Sys.getenv(key, unset = "")
-      if (nzchar(val)) val else "null"
+  # Hide repo/edit sections in VM; keep visible in local
+  observeEvent(TRUE, {
+    if (!is_vm_mode()) return()
+
+    # Hide the whole UI blocks (make sure you added these ids in ui.R)
+    for (sec in c("section_impact", "section_tempo", "section_tcga", "section_refit")) {
+      shinyjs::hide(sec)
     }
 
-    # Safely get resolved paths even if helpers aren't defined yet
-    safe_path <- function(opt_key, fallback) {
-      val <- tryCatch({
-        if (exists("fp_session_path", mode = "function") && opt_key == "fp.session_file") {
-          fp_session_path()
-        } else if (exists("fp_personal_path", mode = "function") && opt_key == "fp.personal_file") {
-          fp_personal_path()
-        } else {
-          getOption(opt_key, fallback)
-        }
-      }, error = function(e) fallback)
-      if (nzchar(val)) val else "null"
-    }
-
-    rows <- list(
-      list(label = "FP_MODE",              value = env_or_null("FP_MODE")),
-      list(label = "FP_USER_ID",           value = env_or_null("FP_USER_ID")),
-      list(label = "FP_USER_BASE_WORKDIR", value = env_or_null("FP_USER_BASE_WORKDIR")),
-      list(label = "FP_USER_WORKDIR",      value = env_or_null("FP_USER_WORKDIR")),
-      # New: resolved file paths (VM-aware)
-      list(label = "Resolved .fp_session.dat",  value = safe_path("fp.session_file",  path.expand("~/.fp_session.dat"))),
-      list(label = "Resolved .fp_personal.dat", value = safe_path("fp.personal_file", path.expand("~/.fp_personal.dat")))
+    # Disable all inputs inside those sections (belt & suspenders)
+    to_disable <- c(
+      # IMPACT
+      "repository_path_impact", "remote_path_impact", "session_switch_impact",
+      # TEMPO
+      "repository_path_tempo",  "remote_path_tempo",  "session_switch_tempo",
+      # TCGA
+      "repository_path_tcga",   "remote_path_tcga",   "session_switch_tcga",
+      # Refit
+      "mount_refit_path", "remote_refit_path", "session_remote_refit"
     )
+    lapply(to_disable, function(id) shinyjs::disable(id))
+
+    # Ensure all mount switches are OFF visually too
+    shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = FALSE)
+    shinyWidgets::updateSwitchInput(session, "session_switch_tempo",  value = FALSE)
+    shinyWidgets::updateSwitchInput(session, "session_switch_tcga",   value = FALSE)
+    shinyWidgets::updateSwitchInput(session, "session_remote_refit",  value = FALSE)
+  }, once = TRUE, ignoreInit = FALSE)
+
+
+  output$fp_session_banner <- renderUI({
+    # helpers
+    null_if_empty <- function(x) if (nzchar(x)) x else "null"
+    show_or_unset <- function(x) if (nzchar(x)) x else "(unset)"
+    # env vars
+    fp_mode              <- Sys.getenv("FP_MODE", "")
+    fp_user_id           <- Sys.getenv("FP_USER_ID", "")
+    fp_user_base_workdir <- Sys.getenv("FP_USER_BASE_WORKDIR", "")
+    fp_user_workdir      <- Sys.getenv("FP_USER_WORKDIR", "")
+
+    base_rows <- list(
+      list(label = "FP_MODE",              value = null_if_empty(fp_mode)),
+      list(label = "FP_USER_ID",           value = null_if_empty(fp_user_id)),
+      list(label = "FP_USER_BASE_WORKDIR", value = null_if_empty(fp_user_base_workdir)),
+      list(label = "FP_USER_WORKDIR",      value = null_if_empty(fp_user_workdir)),
+      list(label = "fp_session_path()",    value = tryCatch(fp_session_path(),  error = function(e) "null")),
+      list(label = "fp_personal_path()",   value = tryCatch(fp_personal_path(), error = function(e) "null"))
+    )
+
+    vm_rows <- list()
+    if (is_vm_mode()) {
+      # read-only display of resolved paths in VM mode
+      vm_rows <- list(
+        list(label = "IMPACT Path", value = show_or_unset(isolate(input$repository_path_impact %||% ""))),
+        list(label = "TCGA Path",   value = show_or_unset(isolate(input$repository_path_tcga   %||% ""))),
+        list(label = "TEMPO Path",  value = show_or_unset(isolate(input$repository_path_tempo  %||% ""))),
+        list(label = "Refit Path",  value = show_or_unset(isolate(input$mount_refit_path       %||% "")))
+      )
+    }
+
+    rows <- c(base_rows, vm_rows)
 
     div(
       style = "margin-bottom:12px;padding:12px;border:1px solid #ddd;border-radius:8px;background:#f8f9fa;",
-      tags$div(
-        style = "display:flex;align-items:center;gap:8px;margin-bottom:6px;",
-        tags$strong(style = "font-size:16px;", "Session")
-      ),
+      tags$div(style="display:flex;align-items:center;gap:8px;margin-bottom:6px;",
+               tags$strong(style="font-size:16px;", "Session")),
       tags$table(
-        style = "width:100%;border-collapse:collapse;font-family:monospace;font-size:12px;",
+        style="width:100%;border-collapse:collapse;font-family:monospace;font-size:12px;",
         tags$tbody(
           lapply(rows, function(r) {
-            value_style <- if (identical(r$value, "null")) {
-              "padding:2px 6px;word-break:break-all;color:#888;font-style:italic;"
-            } else {
-              "padding:2px 6px;word-break:break-all;"
-            }
             tags$tr(
-              tags$td(style = "width:240px;padding:2px 6px;color:#333;font-weight:600;", r$label),
-              tags$td(style = value_style, r$value)
+              tags$td(style="width:220px;padding:2px 6px;color:#333;font-weight:600;", r$label),
+              tags$td(style="padding:2px 6px;word-break:break-all;", r$value)
             )
           })
         )
       )
     )
   })
+
 
 
 

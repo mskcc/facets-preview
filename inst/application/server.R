@@ -778,56 +778,33 @@ function(input, output, session) {
 
   # Function to get the remote path corresponding to a given local path
   get_remote_path <- function(local_path) {
-    if (is_vm_mode()) return(FALSE)  # no sshfs in VM
-
-    # Get the mount information
+    if (identical(Sys.getenv("FP_MODE", ""), "vm")) return(NULL)
     mount_df <- get_mount_info()
-
-    # Find the matching row in the mount_df
     matched_row <- mount_df[sapply(mount_df$local_path, function(mount_local_path) {
       grepl(mount_local_path, local_path)
     }), ]
-
-    # If there's a match, construct the remote path
     if (nrow(matched_row) > 0) {
-      matched_local_path <- matched_row$local_path[1]
+      matched_local_path  <- matched_row$local_path[1]
       matched_remote_path <- matched_row$remote_path[1]
-
-      # Replace the local path prefix with the remote path prefix
-      remote_path <- gsub(matched_local_path, matched_remote_path, local_path)
-      return(remote_path)
-    } else {
-      print("no remote path")
-      # If no match, return NULL or an appropriate message
-      return(NULL)
+      return(gsub(matched_local_path, matched_remote_path, local_path))
     }
+    NULL
   }
 
   get_local_path <- function(remote_path) {
-    if (is_vm_mode()) return(FALSE)  # no sshfs in VM
-
-    # Get the mount information
+    if (identical(Sys.getenv("FP_MODE", ""), "vm")) return(NULL)
     mount_df <- get_mount_info()
-
-    # Find the matching row in the mount_df
     matched_row <- mount_df[sapply(mount_df$remote_path, function(mount_remote_path) {
       grepl(mount_remote_path, remote_path)
     }), ]
-
-    # If there's a match, construct the local path
     if (nrow(matched_row) > 0) {
       matched_remote_path <- matched_row$remote_path[1]
-      matched_local_path <- matched_row$local_path[1]
-
-      # Replace the remote path prefix with the local path prefix
-      local_path <- gsub(matched_remote_path, matched_local_path, remote_path)
-      return(local_path)
-    } else {
-      # If no match, return NULL or an appropriate message
-      print("no local path")
-      return(NULL)
+      matched_local_path  <- matched_row$local_path[1]
+      return(gsub(matched_remote_path, matched_local_path, remote_path))
     }
+    NULL
   }
+
 
 
   get_personal_path <- function(local_path) {
@@ -1421,6 +1398,22 @@ function(input, output, session) {
     selected_sample_path = paste(unlist(values$manifest_metadata[input$datatable_samples_rows_selected,2]), collapse="")
     selected_sample_num_fits = values$manifest_metadata[input$datatable_samples_rows_selected,4]
 
+    # VM: do not do any mount/mapping logic — just use the path as-is
+    if (identical(Sys.getenv("FP_MODE", ""), "vm")) {
+      updateNavbarPage(session, "navbarPage1", selected = "tabPanel_reviewFits")
+      updateTabsetPanel(session, "reviewTabsetPanel", selected = "png_image_tabset")
+      progress <- shiny::Progress$new(); on.exit(progress$close()); progress$set(message = "Loading FACETS runs for the selected sample:", value = 0)
+
+      # Load runs with the provided path only
+      values$sample_runs         <- metadata_init(selected_sample, selected_sample_path, progress)
+      values$sample_runs_compare <- values$sample_runs
+
+      # continue with the rest of your block from “refresh_review_status(...)”
+      refresh_review_status(selected_sample, selected_sample_path, values$sample_runs)
+      # (leave the remainder of this observer as-is)
+      return(invisible(NULL))
+    }
+
     if (selected_sample_num_fits == 0) {
       showModal(modalDialog( title = "No fits found for this sample",
                              "Path to this sample may be incorrect. " ))
@@ -1635,6 +1628,25 @@ function(input, output, session) {
       return(NULL)
     }
 
+    if (identical(Sys.getenv("FP_MODE", ""), "vm")) {
+      progress <- shiny::Progress$new(); on.exit(progress$close()); progress$set(message = "Loading FACETS runs for the selected sample:", value = 0)
+      values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress)
+      # continue with your existing code from “output$verbatimTextOutput_runParams <- ...” onward
+      # (i.e., skip the get_mount_info/matched_row block entirely)
+      # NOTE: do NOT return here; you want the rest of the UI update logic to run.
+    } else {
+      # existing local-mode branch with get_mount_info()/matched_row logic
+      mount_df <- get_mount_info()
+      matched_row <- mount_df[sapply(mount_df$local_path, function(local_path) {
+        grepl(local_path, selected_sample_path)
+      }), ]
+      if (nrow(matched_row) > 0) {
+        values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
+      } else {
+        values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress)
+      }
+    }
+
     # Check if .fp_personal.dat file exists
     personal_repo_meta_file <- file.path(fp_personal_path())
     if (!file.exists(personal_repo_meta_file)) {
@@ -1778,6 +1790,24 @@ function(input, output, session) {
       create_personal_storage_file()
       shinyWidgets::updateSwitchInput(session, "storageType_compare", value = TRUE)
     }
+
+    # VM: load runs directly; no mount detection, no mapping
+    if (identical(Sys.getenv("FP_MODE", ""), "vm")) {
+      progress <- shiny::Progress$new(); on.exit(progress$close()); progress$set(message = "Loading FACETS runs for the selected sample:", value = 0)
+      values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress)
+    } else {
+      # existing local-mode branch with get_mount_info()/matched_row logic
+      mount_df <- get_mount_info()
+      matched_row <- mount_df[sapply(mount_df$local_path, function(local_path) {
+        grepl(local_path, selected_sample_path)
+      }), ]
+      if (nrow(matched_row) > 0) {
+        values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
+      } else {
+        values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress)
+      }
+    }
+
 
     # Read the .fp_personal.dat file into a data frame
     df_personal <- read.table(personal_repo_meta_file, sep = "\t", header = TRUE, stringsAsFactors = FALSE, na.strings = "", fill = TRUE)
@@ -3331,6 +3361,11 @@ function(input, output, session) {
   }
 
   get_mount_info <- function() {
+    if (identical(Sys.getenv("FP_MODE", ""), "vm")) {
+      # In VM we purposely report NO mounts so nothing tries to translate paths
+      return(data.frame(remote_path=character(), local_path=character(), stringsAsFactors=FALSE))
+    }
+
     if (is_vm_mode()) {
       return(data.frame(remote_path=character(), local_path=character(), stringsAsFactors=FALSE))
     }

@@ -1404,14 +1404,13 @@ function(input, output, session) {
       updateTabsetPanel(session, "reviewTabsetPanel", selected = "png_image_tabset")
       progress <- shiny::Progress$new(); on.exit(progress$close()); progress$set(message = "Loading FACETS runs for the selected sample:", value = 0)
 
-      # Load runs with the provided path only
       values$sample_runs         <- metadata_init(selected_sample, selected_sample_path, progress)
       values$sample_runs_compare <- values$sample_runs
 
-      # continue with the rest of your block from “refresh_review_status(...)”
       refresh_review_status(selected_sample, selected_sample_path, values$sample_runs)
-      # (leave the remainder of this observer as-is)
-      return(invisible(NULL))
+
+      # Mark as VM so we skip the mount branch below
+      attr(values$sample_runs, "vm_loaded") <- TRUE
     }
 
     if (selected_sample_num_fits == 0) {
@@ -1428,14 +1427,31 @@ function(input, output, session) {
 
     #print("LoadingSample")
 
-    mount_df <- get_mount_info()
+    if (!identical(Sys.getenv("FP_MODE", ""), "vm") &&
+        is.null(attr(values$sample_runs, "vm_loaded"))) {
 
-    #print("_-MountDf_done")
+      # (keep your existing mount logic as-is)
+      mount_df <- get_mount_info()
+      matched_row <- mount_df[sapply(mount_df$local_path, function(local_path) {
+        grepl(local_path, selected_sample_path)
+      }), ]
 
-    # Check if selected_sample_path contains any local_path entries
-    matched_row <- mount_df[sapply(mount_df$local_path, function(local_path) {
-      grepl(local_path, selected_sample_path)
-    }), ]
+      if (nrow(matched_row) > 0) {
+        if (is_restricted_path(matched_row$remote_path)) {
+          if (session_data$password_valid == 1 || !is_remote_file(selected_sample_path)) {
+            showNotification("You are authorized to make changes to this sample.", type = "message")
+          } else {
+            showNotification("You are not authorized to perform refits or reviews for this sample. Authenticate on the session tab to unlock.", type = "error")
+          }
+        }
+        values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
+        values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
+      } else {
+        showNotification("You are authorized to make changes to this sample.", type = "message")
+        values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress)
+        values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress)
+      }
+    }
 
 
     #print("matchedRows")
@@ -1701,17 +1717,23 @@ function(input, output, session) {
     progress$set(message = "Loading FACETS runs for the selected sample:", value = 0)
 
     # Check if we are working on a mounted location.
-    mount_df <- get_mount_info()
-    matched_row <- mount_df[sapply(mount_df$local_path, function(local_path) {
-      grepl(local_path, selected_sample_path)
-    }), ]
+    if (!identical(Sys.getenv("FP_MODE", ""), "vm")) {
+      progress <- shiny::Progress$new()
+      on.exit(progress$close())
+      progress$set(message = "Loading FACETS runs for the selected sample:", value = 0)
 
-    #Don't update remote files if we are mounted.
-    if (nrow(matched_row) > 0) {
-      values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress,FALSE)
-    } else {
-      values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress)
+      mount_df <- get_mount_info()
+      matched_row <- mount_df[sapply(mount_df$local_path, function(local_path) {
+        grepl(local_path, selected_sample_path)
+      }), ]
+
+      if (nrow(matched_row) > 0) {
+        values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
+      } else {
+        values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress)
+      }
     }
+
 
     output$verbatimTextOutput_runParams <- renderText({})
     output$imageOutput_pngImage1 <- renderImage({ list(src="", width=0, height=0)}, deleteFile=FALSE)
@@ -1828,22 +1850,23 @@ function(input, output, session) {
 
 
 
-    progress <- shiny::Progress$new()
-    on.exit(progress$close())
-    progress$set(message = "Loading FACETS runs for the selected sample:", value = 0)
+    if (!identical(Sys.getenv("FP_MODE", ""), "vm")) {
+      progress <- shiny::Progress$new()
+      on.exit(progress$close())
+      progress$set(message = "Loading FACETS runs for the selected sample:", value = 0)
 
-    # Check if we are working on a mounted location.
-    mount_df <- get_mount_info()
-    matched_row <- mount_df[sapply(mount_df$local_path, function(local_path) {
-      grepl(local_path, selected_sample_path)
-    }), ]
+      mount_df <- get_mount_info()
+      matched_row <- mount_df[sapply(mount_df$local_path, function(local_path) {
+        grepl(local_path, selected_sample_path)
+      }), ]
 
-    #Don't update remote files if we are mounted.
-    if (nrow(matched_row) > 0) {
-      values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress,FALSE)
-    } else {
-      values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress)
+      if (nrow(matched_row) > 0) {
+        values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
+      } else {
+        values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress)
+      }
     }
+
 
     output$verbatimTextOutput_runParams_compare <- renderText({})
     output$imageOutput_pngImage2 <- renderImage({ list(src="", width=0, height=0)}, deleteFile=FALSE)

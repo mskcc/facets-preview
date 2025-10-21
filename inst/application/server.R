@@ -1438,17 +1438,17 @@ function(input, output, session) {
 
     # VM: do not do any mount/mapping logic — just use the path as-is
     if (identical(Sys.getenv("FP_MODE", ""), "vm")) {
-      # Go straight to Review Fits (not "visualization")
+      # Navigate to Review Fits (keep this tab id consistent across app)
       updateNavbarPage(session, "navbarPage1", selected = "tabPanel_reviewFits")
       updateTabsetPanel(session, "reviewTabsetPanel", selected = "png_image_tabset")
 
+      # Load runs directly from the provided path (no mapping in VM)
       progress <- shiny::Progress$new(min = 1, max = 4)
       on.exit(progress$close(), add = TRUE)
       progress$set(message = "Loading data", value = 1)
 
-      # VM: use the selected path as-is (no mount mapping)
-      values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
-      values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
+      values$sample_runs         <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
+      values$sample_runs_compare <- values$sample_runs
 
       if (is.null(values$sample_runs) || nrow(values$sample_runs) == 0) {
         showModal(modalDialog(
@@ -1456,43 +1456,62 @@ function(input, output, session) {
           paste0(
             "Could not find any runs under:\n\n",
             selected_sample_path,
-            "\n\nCheck that the path contains facets outputs and a facets_review.manifest."
+            "\n\nCheck that the path contains FACETS outputs and a facets_review.manifest."
           ),
           easyClose = TRUE
         ))
         return(NULL)
       }
 
-      # (Important) Correct argument order: (selected_sample, selected_sample_path, facets_runs)
+      # Update review status table (args: sample_id, sample_path, runs_df)
       refresh_review_status(selected_sample, selected_sample_path, values$sample_runs)
 
-      # Populate Select Sample / Select Fit so UI isn’t blank
-      updateSelectInput(session, "selectInput_selectSample",
-                        choices = as.list(unique(values$sample_runs$sample)),
-                        selected = selected_sample)
+      # ----------- Populate the dropdowns (this fixes the empty selects) -----------
+      # All sample ids from the current manifest table
+      mm <- values$manifest_metadata
+      filtered_sample_id <- mm$sample_id[!is.na(mm$sample_id) & nzchar(mm$sample_id)]
 
-      fit_choices <- c("Not selected", unique(values$sample_runs$fit_name))
-      updateSelectInput(session, "selectInput_selectFit",
-                        choices = as.list(fit_choices),
-                        selected = if ("default" %in% fit_choices) "default" else "Not selected")
+      updateSelectInput(
+        session, "selectInput_selectSample",
+        choices  = as.list(filtered_sample_id),
+        selected = selected_sample
+      )
+      updateSelectInput(
+        session, "selectInput_selectSample_compare",
+        choices  = as.list(filtered_sample_id),
+        selected = selected_sample
+      )
 
-      # Mirror into compare selector as well so compare mode works immediately if toggled
-      updateSelectInput(session, "selectInput_selectSample_compare",
-                        choices = as.list(unique(values$sample_runs_compare$sample)),
-                        selected = selected_sample)
-      updateSelectInput(session, "selectInput_selectFit_compare",
-                        choices = as.list(fit_choices),
-                        selected = if ("default" %in% fit_choices) "default" else "Not selected")
+      # Fit choices from the loaded runs
+      fit_names   <- unique(values$sample_runs$fit_name)
+      fit_choices <- as.list(c("Not selected", fit_names))
+      default_sel <- if ("default" %in% fit_names) "default" else "Not selected"
 
-      # Start in REMOTE mode in VM by default
+      updateSelectInput(
+        session, "selectInput_selectFit",
+        choices  = fit_choices,
+        selected = default_sel
+      )
+      updateSelectInput(
+        session, "selectInput_selectFit_compare",
+        choices  = fit_choices,
+        selected = default_sel
+      )
+
+      # Keep internal “current selection” mirrors in sync (if you use them later)
+      values$show_fit         <- default_sel
+      values$show_fit_compare <- default_sel
+
+      # Prevent any legacy mount logic from executing below in this observer
+      matched_row <- data.frame()
+
+      # Default to REMOTE in VM
       shinyWidgets::updateSwitchInput(session, "storageType", value = TRUE)
       shinyWidgets::updateSwitchInput(session, "storageType_compare", value = TRUE)
 
-      # Prevent any downstream “matched_row” logic from firing in this branch
-      matched_row <- data.frame()
-
       return(NULL)
     }
+
 
 
 

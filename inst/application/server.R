@@ -296,6 +296,8 @@ function(input, output, session) {
     # Repos from global.config (only if still blank after session restore)
     imp_set  <- set_if_blank("repository_path_impact", defs$impact %||% "")
     if (imp_set) updateTextInput(session, "remote_path_impact", value = defs$impact %||% "")
+    shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = TRUE)
+    session_data$session_switch_impact <- TRUE
 
     tcga_set <- set_if_blank("repository_path_tcga",   defs$tcga   %||% "")
     if (tcga_set) updateTextInput(session, "remote_path_tcga",   value = defs$tcga   %||% "")
@@ -332,7 +334,7 @@ function(input, output, session) {
     updateTextInput(session, "remote_refit_path", value = (isolate(input$mount_refit_path) %||% ""))
 
     # Force all mount switches OFF visually in VM
-    shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = FALSE)
+    shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = TRUE)
     shinyWidgets::updateSwitchInput(session, "session_switch_tempo",  value = FALSE)
     shinyWidgets::updateSwitchInput(session, "session_switch_tcga",   value = FALSE)
     shinyWidgets::updateSwitchInput(session, "session_remote_refit",  value = FALSE)
@@ -491,7 +493,7 @@ function(input, output, session) {
     if (!is_vm_mode()) return()
 
     # Hide the whole UI blocks (make sure you added these ids in ui.R)
-    for (sec in c("section_impact", "section_tempo", "section_tcga", "section_refit")) {
+    for (sec in c("section_tempo", "section_tcga", "section_refit")) {
       shinyjs::hide(sec)
     }
 
@@ -578,7 +580,7 @@ function(input, output, session) {
 
   observeEvent(input$button_repoSamplesInput, {
 
-    if (is.null(values$selected_repo)) {
+    if (!is_vm_mode() && is.null(values$selected_repo))  {
       showModal(modalDialog(title = "Failed",
                             paste0("No facets repository selected. Please choose one.")
       ))
@@ -605,7 +607,20 @@ function(input, output, session) {
     on.exit(progress$close())
     progress$set(message = "Reading Samples:", value = 0)
 
-    values$manifest_metadata <- load_repo_samples(tumor_ids, values$selected_repo$manifest_file, progress)
+    # local
+    manifest_file <- values$selected_repo$manifest_file
+
+    # VM override
+    if (is_vm_mode()) {
+      # Pull the root from the inputs/session_data/defaults, in that order
+      impact_root <- input$remote_path_impact %||% session_data$remote_path_impact %||% get_vm_repo_defaults()$impact
+
+      # Keep the same manifest file name the config uses, just relocate it under the VM root.
+      mf <- basename(manifest_file %||% "facets_repo_manifest.txt")
+      manifest_file <- file.path(impact_root, mf)
+    }
+
+    values$manifest_metadata <- load_repo_samples(tumor_ids, manifest_file, progress)
 
     num_samples_queried = length(tumor_ids)
     num_samples_found = nrow(values$manifest_metadata)
@@ -3296,7 +3311,7 @@ function(input, output, session) {
   # Observe changes to the impact switch
   observeEvent(input$session_switch_impact, {
     if (is_vm_mode()) {
-      shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = FALSE)
+      shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = TRUE)
       return()
     }
 
@@ -3578,7 +3593,7 @@ function(input, output, session) {
       sw_use_mount_tempo  <- FALSE
       sw_use_mount_tcga   <- FALSE
       sw_use_mount_refit  <- FALSE
-      shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = FALSE)
+      shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = TRUE)
       shinyWidgets::updateSwitchInput(session, "session_switch_tempo",  value = FALSE)
       shinyWidgets::updateSwitchInput(session, "session_switch_tcga",   value = FALSE)
       shinyWidgets::updateSwitchInput(session, "session_remote_refit",  value = FALSE)
@@ -3803,7 +3818,7 @@ function(input, output, session) {
 
     if (is_vm_mode()) {
       updateTextInput(session, "remote_path_impact", value = input$repository_path_impact %||% "")
-      shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = FALSE)
+      shinyWidgets::updateSwitchInput(session, "session_switch_impact", value = TRUE)
 
       session_data$repository_path_impact <- input$repository_path_impact %||% ""
       session_data$remote_path_impact     <- input$repository_path_impact %||% ""

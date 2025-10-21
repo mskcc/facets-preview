@@ -1509,6 +1509,8 @@ function(input, output, session) {
       shinyWidgets::updateSwitchInput(session, "storageType", value = TRUE)
       shinyWidgets::updateSwitchInput(session, "storageType_compare", value = TRUE)
 
+      skipSampleChange(FALSE)
+
       return(NULL)
     }
 
@@ -1732,10 +1734,11 @@ function(input, output, session) {
 
 
   observeEvent(input$selectInput_selectSample, {
-    if (!skipSampleChange()) {
+    if (identical(Sys.getenv("FP_MODE", ""), "vm") || !skipSampleChange()) {
       handleSampleChange()
     }
   })
+
 
 
   handleSampleChange <- function() {
@@ -1840,10 +1843,11 @@ function(input, output, session) {
 
 
   observeEvent(input$selectInput_selectSample_compare, {
-    if (!skipSampleChange()) {
+    if (identical(Sys.getenv("FP_MODE", ""), "vm") || !skipSampleChange()) {
       handleSampleChange_compare()
     }
   })
+
 
 
   handleSampleChange_compare <- function() {

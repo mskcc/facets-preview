@@ -178,15 +178,18 @@ fp_personal_dir <- function() {
             " ncol=", ifelse(is.data.frame(df), ncol(df), NA))
     if (is.data.frame(df)) {
       # names
-      message("[DEBUG] ", label, " names: ", paste(utils::head(names(df), max_cols), collapse = ", "),
+      message("[DEBUG] ", label, " names: ",
+              paste(utils::head(names(df), max_cols), collapse = ", "),
               if (ncol(df) > max_cols) " …" else "")
       # glimpse types
       tps <- vapply(df, function(x) paste(class(x), collapse = "/"), character(1))
-      message("[DEBUG] ", label, " types: ", paste(utils::head(paste0(names(df), ":", tps), max_cols), collapse = ", "),
+      message("[DEBUG] ", label, " types: ",
+              paste(utils::head(paste0(names(df), ":", tps), max_cols), collapse = ", "),
               if (length(tps) > max_cols) " …" else "")
       # top rows (non-breaking)
       message("[DEBUG] ", label, " head:")
-      utils::capture.output(utils::head(df, max_rows)) |> paste(collapse = "\n") |> message()
+      msg <- paste(utils::capture.output(utils::head(df, max_rows)), collapse = "\n")
+      message(msg)
     }
   }, silent = TRUE)
   invisible(NULL)

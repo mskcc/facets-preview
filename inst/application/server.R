@@ -165,9 +165,10 @@ fp_personal_dir <- function() {
 
 
 
+
 server <-
 function(input, output, session) {
-  values <- reactiveValues(config_file = ifelse( exists("facets_preview_config_file"), facets_preview_config_file, "<not set>"))
+  values <- reactiveValues(manifest_metadata = NULL, samples_ready = FALSE, samples_loading = FALSE, config_file = ifelse( exists("facets_preview_config_file"), facets_preview_config_file, "<not set>"))
   output$verbatimTextOutput_sessionInfo <- renderPrint({print(sessionInfo())})
   output$verbatimTextOutput_signAs <- renderText({paste0(system('whoami', intern = T))})
 
@@ -638,6 +639,9 @@ function(input, output, session) {
 
   observeEvent(input$button_samplesInput, {
 
+    values$samples_ready <- FALSE
+    values$samples_loading <- TRUE
+
     #print("button_samplesInput-1")
 
     # Get the input from textAreaInput_samplesInput and clean it up
@@ -647,6 +651,8 @@ function(input, output, session) {
 
     # If the input is empty, return early and do nothing
     if (is.null(input_text) || nzchar(trimws(input_text)) == FALSE) {
+      values$samples_loading <- FALSE
+      values$samples_ready <- FALSE
       return()  # Exit the function without doing anything
     }
 
@@ -659,6 +665,8 @@ function(input, output, session) {
 
     # If no valid lines remain after cleaning, return early
     if (length(lines) == 0) {
+      values$samples_loading <- FALSE
+      values$samples_ready <- FALSE
       return()
     }
 
@@ -690,6 +698,8 @@ function(input, output, session) {
 
     # If no valid paths remain after cleaning, return early
     if (length(existing_lines) == 0) {
+      values$samples_loading <- FALSE
+      values$samples_ready <- FALSE
       return()
     }
 
@@ -732,32 +742,95 @@ function(input, output, session) {
 
     # Reset submitted refits
     values$submitted_refits <- c()
+
+    values$samples_loading <- FALSE
+    values$samples_ready <- is.data.frame(values$manifest_metadata) && nrow(values$manifest_metadata) > 0
   })
 
 
 
 
   output$datatable_samples <- DT::renderDataTable({
-    if (is.null(values$manifest_metadata) || nrow(values$manifest_metadata) == 0) {
-      return(NULL)
+    # If still loading, show a lightweight placeholder (no Ajax error)
+    if (isTRUE(values$samples_loading)) {
+      return(
+        DT::datatable(
+          data.frame(Status = "Loading samples manifest…"),
+          options = list(dom = 't', paging = FALSE),
+          rownames = FALSE
+        )
+      )
     }
 
+    # Wait until the manifest is marked “ready”
+    req(isTRUE(values$samples_ready))
+
+    mm <- values$manifest_metadata
+
+    # Safety: if something toggled the flag but data is empty, show guidance
+    if (is.null(mm) || !is.data.frame(mm) || nrow(mm) == 0) {
+      return(
+        DT::datatable(
+          data.frame(Info = "No samples to display. Add samples and click ‘Load Samples’."),
+          options = list(dom = 't', paging = FALSE),
+          rownames = FALSE
+        )
+      )
+    }
+
+    # --- defensive column handling (same as before; safe against missing cols) ---
+    ensure_cols <- function(df, cols, default = NA) {
+      for (nm in cols) if (!nm %in% names(df)) df[[nm]] <- default
+      df
+    }
+    mm <- ensure_cols(
+      mm,
+      c(
+        "path", "facets_suite_version", "facets_qc_version",
+        "default_fit_qc", "review_status", "reviewed_fit_facets_qc",
+        "reviewed_fit_use_purity", "reviewed_fit_use_edited_cncf",
+        "reviewer_set_purity", "reviewed_fit_date"
+      )
+    )
+    safe_bool <- function(x) {
+      y <- suppressWarnings(as.logical(x))
+      ifelse(is.na(y), FALSE, y)
+    }
+    mm$default_fit_qc               <- safe_bool(mm$default_fit_qc)
+    mm$reviewed_fit_facets_qc       <- safe_bool(mm$reviewed_fit_facets_qc)
+    mm$reviewed_fit_use_purity      <- safe_bool(mm$reviewed_fit_use_purity)
+    mm$reviewed_fit_use_edited_cncf <- safe_bool(mm$reviewed_fit_use_edited_cncf)
+
     gicon <- function(x) as.character(icon(x, lib = "glyphicon"))
-    DT::datatable(values$manifest_metadata %>%
-                    dplyr::select(-path, -facets_suite_version, -facets_qc_version) %>%
-                    mutate(default_fit_qc = ifelse(default_fit_qc, gicon('ok'), gicon('remove'))) %>%
-                    mutate(reviewed_fit_facets_qc =
-                             ifelse(review_status == 'Not reviewed', '',
-                                    ifelse(reviewed_fit_facets_qc, gicon('ok'), gicon('remove')))) %>%
-                    mutate(reviewed_fit_use_purity = ifelse(reviewed_fit_use_purity, gicon('ok-sign'), '')) %>%
-                    mutate(reviewed_fit_use_edited_cncf = ifelse(reviewed_fit_use_edited_cncf, gicon('ok-sign'), '')),
-                  selection=list(mode='single', selected=values$dt_sel),
-                  colnames = c('Sample ID (tag)', '# fits', 'Default Fit', 'Default Fit QC',
-                               'Review Status', 'Reviewed Fit', 'Reviewed Fit QC', 'purity run only?',
-                               'edited.cncf.txt?', 'Reviewer purity', 'Date Reviewed'),
-                  options = list(pageLength = 20, columnDefs = list(list(className = 'dt-center', targets = 0:9))),
-                  rownames=FALSE, escape = F)
+
+    out <- mm
+    drop_cols <- intersect(c("path", "facets_suite_version", "facets_qc_version"), names(out))
+    out$default_fit_qc <- ifelse(out$default_fit_qc, gicon("ok"), gicon("remove"))
+    out$reviewed_fit_facets_qc <- dplyr::case_when(
+      is.na(out$review_status) | out$review_status == "Not reviewed" ~ "",
+      TRUE ~ ifelse(out$reviewed_fit_facets_qc, gicon("ok"), gicon("remove"))
+    )
+    out$reviewed_fit_use_purity      <- ifelse(out$reviewed_fit_use_purity, gicon("ok-sign"), "")
+    out$reviewed_fit_use_edited_cncf <- ifelse(out$reviewed_fit_use_edited_cncf, gicon("ok-sign"), "")
+    out <- out[, setdiff(names(out), drop_cols), drop = FALSE]
+
+    DT::datatable(
+      out,
+      selection = list(mode = "single", selected = values$dt_sel %||% NULL),
+      colnames = c(
+        "Sample ID (tag)", "# fits", "Default Fit", "Default Fit QC",
+        "Review Status", "Reviewed Fit", "Reviewed Fit QC", "purity run only?",
+        "edited.cncf.txt?", "Reviewer purity", "Date Reviewed"
+      ),
+      options = list(
+        pageLength = 20,
+        columnDefs = list(list(className = "dt-center", targets = 0:9))
+      ),
+      rownames = FALSE,
+      escape = FALSE
+    )
   })
+
 
   # Downloadable csv of selected dataset ----
   output$download_mapping_file <- downloadHandler(

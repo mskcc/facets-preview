@@ -167,8 +167,36 @@ fp_personal_dir <- function() {
   p
 }
 
+.log_df <- function(label, df, max_rows = 5, max_cols = 20) {
+  try({
+    if (is.null(df)) {
+      message("[DEBUG] ", label, ": <NULL>")
+      return(invisible())
+    }
+    message("[DEBUG] ", label, ": class=", paste(class(df), collapse = "/"),
+            " nrow=", ifelse(is.data.frame(df), nrow(df), NA),
+            " ncol=", ifelse(is.data.frame(df), ncol(df), NA))
+    if (is.data.frame(df)) {
+      # names
+      message("[DEBUG] ", label, " names: ", paste(utils::head(names(df), max_cols), collapse = ", "),
+              if (ncol(df) > max_cols) " …" else "")
+      # glimpse types
+      tps <- vapply(df, function(x) paste(class(x), collapse = "/"), character(1))
+      message("[DEBUG] ", label, " types: ", paste(utils::head(paste0(names(df), ":", tps), max_cols), collapse = ", "),
+              if (length(tps) > max_cols) " …" else "")
+      # top rows (non-breaking)
+      message("[DEBUG] ", label, " head:")
+      utils::capture.output(utils::head(df, max_rows)) |> paste(collapse = "\n") |> message()
+    }
+  }, silent = TRUE)
+  invisible(NULL)
+}
 
-
+.dt_error_callback <- DT::JS(
+  "table.on('error.dt', function(e, settings, techNote, message){",
+  "  Shiny.setInputValue('datatable_samples_error', message, {priority: 'event'});",
+  "});"
+)
 
 server <-
 function(input, output, session) {
@@ -380,6 +408,12 @@ function(input, output, session) {
           modalButton('Dismiss'))
       )
     )
+  })
+
+  observeEvent(input$datatable_samples_error, {
+    msg <- input$datatable_samples_error
+    message('[DT error hook] ', msg)
+    showNotification(paste('DT error:', msg), type = 'error', duration = 6)
   })
 
   observeEvent(input$actionButton_selectRepo, {
@@ -743,6 +777,9 @@ function(input, output, session) {
     #print("button_samplesInput-6.5")
     values$manifest_metadata <- manifest_metadata
 
+    .log_df("values$manifest_metadata (assigned)", values$manifest_metadata)
+
+
     #print("button_samplesInput-7")
 
 
@@ -757,7 +794,7 @@ function(input, output, session) {
 
 
   output$datatable_samples <- DT::renderDataTable({
-    # If still loading, show a lightweight placeholder (prevents Ajax error)
+    # While loading, show a static table (prevents Ajax error)
     if (isTRUE(values$samples_loading)) {
       return(
         DT::datatable(
@@ -768,14 +805,16 @@ function(input, output, session) {
       )
     }
 
-    # Wait until the manifest is marked “ready”
+    # Wait until loader marked data as ready
     req(isTRUE(values$samples_ready))
 
     tryCatch({
       mm <- values$manifest_metadata
+      .log_df("manifest_metadata (raw)", mm)
 
-      # Safety: if something toggled the flag but data is empty, show guidance
+      # Guard: if empty, show guidance
       if (is.null(mm) || !is.data.frame(mm) || nrow(mm) == 0) {
+        message("[DEBUG] manifest_metadata is empty/invalid; showing guidance table.")
         return(
           DT::datatable(
             data.frame(Info = "No samples to display. Add samples and click ‘Load Samples’."),
@@ -785,18 +824,25 @@ function(input, output, session) {
         )
       }
 
-      # --- defensive column handling ---
+      # Normalize column presence (use reviewed_date, not reviewed_fit_date)
       ensure_cols <- function(df, cols, default = NA) {
         for (nm in cols) if (!nm %in% names(df)) df[[nm]] <- default
         df
       }
+      if ("reviewed_fit_date" %in% names(mm) && !"reviewed_date" %in% names(mm)) {
+        mm$reviewed_date <- mm$reviewed_fit_date
+      }
+      if ("reviewed_fit_date" %in% names(mm)) mm$reviewed_fit_date <- NULL
+
       mm <- ensure_cols(
         mm,
         c(
-          "path", "facets_suite_version", "facets_qc_version",
-          "default_fit_qc", "review_status", "reviewed_fit_facets_qc",
+          "sample_id", "num_fits", "default_fit_name", "default_fit_qc",
+          "review_status", "reviewed_fit_name", "reviewed_fit_facets_qc",
           "reviewed_fit_use_purity", "reviewed_fit_use_edited_cncf",
-          "reviewer_set_purity", "reviewed_fit_date"  # keep this name consistent
+          "reviewer_set_purity", "reviewed_date",
+          # droppable extras that sometimes appear:
+          "path", "facets_suite_version", "facets_qc_version"
         )
       )
 
@@ -811,8 +857,11 @@ function(input, output, session) {
 
       gicon <- function(x) as.character(icon(x, lib = "glyphicon"))
 
-      out <- mm
-      drop_cols <- intersect(c("path", "facets_suite_version", "facets_qc_version"), names(out))
+      # Drop known non-display columns if present
+      drop_cols <- intersect(c("path", "facets_suite_version", "facets_qc_version"), names(mm))
+      out <- mm[, setdiff(names(mm), drop_cols), drop = FALSE]
+
+      # Format glyph columns
       out$default_fit_qc <- ifelse(out$default_fit_qc, gicon("ok"), gicon("remove"))
       out$reviewed_fit_facets_qc <- dplyr::case_when(
         is.na(out$review_status) | out$review_status == "Not reviewed" ~ "",
@@ -820,13 +869,21 @@ function(input, output, session) {
       )
       out$reviewed_fit_use_purity      <- ifelse(out$reviewed_fit_use_purity, gicon("ok-sign"), "")
       out$reviewed_fit_use_edited_cncf <- ifelse(out$reviewed_fit_use_edited_cncf, gicon("ok-sign"), "")
-      out <- out[, setdiff(names(out), drop_cols), drop = FALSE]
+
+      # Enforce exact column order to match headers (prevents count mismatch)
+      desired_cols <- c(
+        "sample_id", "num_fits", "default_fit_name", "default_fit_qc",
+        "review_status", "reviewed_fit_name", "reviewed_fit_facets_qc",
+        "reviewed_fit_use_purity", "reviewed_fit_use_edited_cncf",
+        "reviewer_set_purity", "reviewed_date"
+      )
+      out <- out[, desired_cols, drop = FALSE]
+      .log_df("datatable_samples (final out)", out)
 
       DT::datatable(
         out,
         selection = list(
           mode = "single",
-          # Avoid %||% here; if values$dt_sel is NULL we pass NULL explicitly
           selected = if (is.null(values$dt_sel)) NULL else values$dt_sel
         ),
         colnames = c(
@@ -839,11 +896,11 @@ function(input, output, session) {
           columnDefs = list(list(className = "dt-center", targets = 0:9))
         ),
         rownames = FALSE,
-        escape = FALSE
+        escape = FALSE,
+        callback = .dt_error_callback   # <-- JS hook to report any DT error text
       )
     }, error = function(e) {
-      # Log and return a safe fallback so DT doesn't show “Ajax error”
-      message("[datatable_samples] ERROR: ", conditionMessage(e))
+      message("[datatable_samples] ERROR (R): ", conditionMessage(e))
       DT::datatable(
         data.frame(Error = "Failed to render Samples Manifest. See server logs for details."),
         options = list(dom = 't', paging = FALSE),
@@ -851,6 +908,7 @@ function(input, output, session) {
       )
     })
   })
+
 
 
 

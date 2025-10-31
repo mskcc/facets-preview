@@ -15,6 +15,10 @@
 #' @import httr
 #' @import jsonlite
 
+options(shiny.fullstacktrace = TRUE)
+options(shiny.sanitize.errors = FALSE)
+
+
 read_session_data <- function(file_path) {
   if (file.exists(file_path)) {
     return(read.table(file_path, header = TRUE, sep = "\t", stringsAsFactors = FALSE))
@@ -792,9 +796,10 @@ function(input, output, session) {
           "path", "facets_suite_version", "facets_qc_version",
           "default_fit_qc", "review_status", "reviewed_fit_facets_qc",
           "reviewed_fit_use_purity", "reviewed_fit_use_edited_cncf",
-          "reviewer_set_purity", "reviewed_date"
+          "reviewer_set_purity", "reviewed_fit_date"  # keep this name consistent
         )
       )
+
       safe_bool <- function(x) {
         y <- suppressWarnings(as.logical(x))
         ifelse(is.na(y), FALSE, y)
@@ -821,7 +826,8 @@ function(input, output, session) {
         out,
         selection = list(
           mode = "single",
-          selected = if (is.null(values$dt_sel)) NULL else values$dt_sel   # <— no %||%
+          # Avoid %||% here; if values$dt_sel is NULL we pass NULL explicitly
+          selected = if (is.null(values$dt_sel)) NULL else values$dt_sel
         ),
         colnames = c(
           "Sample ID (tag)", "# fits", "Default Fit", "Default Fit QC",
@@ -836,8 +842,8 @@ function(input, output, session) {
         escape = FALSE
       )
     }, error = function(e) {
+      # Log and return a safe fallback so DT doesn't show “Ajax error”
       message("[datatable_samples] ERROR: ", conditionMessage(e))
-      # Return a simple table instead of letting DT show the Ajax error
       DT::datatable(
         data.frame(Error = "Failed to render Samples Manifest. See server logs for details."),
         options = list(dom = 't', paging = FALSE),
@@ -845,6 +851,7 @@ function(input, output, session) {
       )
     })
   })
+
 
 
 

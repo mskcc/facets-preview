@@ -1979,9 +1979,12 @@ function(input, output, session) {
       values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
     } else {
       mount_df <- get_mount_info()
-      matched_row <- mount_df[sapply(mount_df$local_path, function(local_path) {
+
+      hit_idx <- unlist(sapply(mount_df$local_path, function(local_path) {
         grepl(local_path, selected_sample_path)
-      }), ]
+      }))
+      matched_row <- mount_df[hit_idx, , drop = FALSE]
+
       if (nrow(matched_row) > 0) {
         values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
       } else {
@@ -1997,8 +2000,14 @@ function(input, output, session) {
       create_personal_storage_file()
       shinyWidgets::updateSwitchInput(session, "storageType_compare", value = TRUE)
     } else {
-      df_personal <- read.table(personal_repo_meta_file, sep = "\t", header = TRUE,
-                                stringsAsFactors = FALSE, na.strings = "", fill = TRUE)
+      df_personal <- read.table(
+        personal_repo_meta_file,
+        sep = "\t",
+        header = TRUE,
+        stringsAsFactors = FALSE,
+        na.strings = "",
+        fill = TRUE
+      )
       in_personal <- selected_sample_path %in% df_personal$Personal
       shinyWidgets::updateSwitchInput(session, "storageType_compare", value = !isTRUE(in_personal == TRUE))
     }
@@ -2020,8 +2029,11 @@ function(input, output, session) {
     updateSelectInput(
       session, "selectInput_selectFit_compare",
       choices  = as.list(c("Not selected", unlist(values$sample_runs_compare$fit_name))),
-      selected = ifelse(input$selectInput_selectFit_compare == "Not selected" && values$show_fit_compare != "Not selected",
-                        values$show_fit_compare, "Not selected")
+      selected = ifelse(
+        input$selectInput_selectFit_compare == "Not selected" && values$show_fit_compare != "Not selected",
+        values$show_fit_compare,
+        "Not selected"
+      )
     )
 
     updateSelectInput(
@@ -2032,9 +2044,8 @@ function(input, output, session) {
 
     output$verbatimTextOutput_runParams_compare <- renderText({})
     output$imageOutput_pngImage2 <- renderImage({ list(src = "", width = 0, height = 0) }, deleteFile = FALSE)
-
-    # leave the rest of your UI/render logic as-is
   }
+
 
 
   observeEvent(input$selectInput_selectFit, {

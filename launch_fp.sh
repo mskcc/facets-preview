@@ -25,5 +25,5 @@ log_mount() {
 log_mount &
 
 # Run the Docker container
-docker run -v $HOME:/root -v /Users/:/Users/ --workdir $PWD -p 3838:3838 --name test --rm -i -t price0416/fp_docker:latest /bin/bash
+docker run -v $HOME:/root -v /Users/:/Users/ --workdir $PWD -p 3838:3838 --name test --rm -i -t price0416/fp_docker:3.2.0 /bin/bash
 

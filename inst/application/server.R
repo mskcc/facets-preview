@@ -889,6 +889,7 @@ function(input, output, session) {
 
   # Function to check if the given path is restricted
   is_restricted_path <- function(check_path) {
+    # Check if the path contains any of the restricted paths
     any(sapply(restricted_paths, function(restricted) grepl(restricted, check_path)))
   }
 
@@ -896,59 +897,70 @@ function(input, output, session) {
   is_remote_file <- function(local_path) {
     if (is_vm_mode()) return(FALSE)  # no sshfs in VM
 
+    # Get the mount information
     mount_df <- get_mount_info()
-    if (!is.data.frame(mount_df) || nrow(mount_df) == 0) return(FALSE)
 
-    hits <- which(vapply(
-      mount_df$local_path,
-      function(mount_local_path) grepl(mount_local_path, local_path),
-      logical(1L)
-    ))
+    # Check if the local path matches any of the local paths in the mount_df
+    matched_row <- mount_df[
+      vapply(
+        mount_df$local_path,
+        function(mount_local_path) {
+          grepl(mount_local_path, local_path)
+        },
+        logical(1L)
+      ),
+      ,
+      drop = FALSE
+    ]
 
-    length(hits) > 0
+
+    # If matched_row is not empty, then the file represents a remote location
+    return(nrow(matched_row) > 0)
   }
 
   # Function to get the remote path corresponding to a given local path
   get_remote_path <- function(local_path) {
     if (identical(Sys.getenv("FP_MODE", ""), "vm")) return(NULL)
-
     mount_df <- get_mount_info()
-    if (!is.data.frame(mount_df) || nrow(mount_df) == 0) return(NULL)
-
-    hits <- which(vapply(
-      mount_df$local_path,
-      function(mount_local_path) grepl(mount_local_path, local_path),
-      logical(1L)
-    ))
-
-    if (!length(hits)) return(NULL)
-
-    hit <- hits[1]
-    matched_local_path  <- mount_df$local_path[hit]
-    matched_remote_path <- mount_df$remote_path[hit]
-
-    gsub(matched_local_path, matched_remote_path, local_path)
+    matched_row <- mount_df[
+      vapply(
+        mount_df$local_path,
+        function(mount_local_path) {
+          grepl(mount_local_path, local_path)
+        },
+        logical(1L)
+      ),
+      ,
+      drop = FALSE
+    ]
+    if (nrow(matched_row) > 0) {
+      matched_local_path  <- matched_row$local_path[1]
+      matched_remote_path <- matched_row$remote_path[1]
+      return(gsub(matched_local_path, matched_remote_path, local_path))
+    }
+    NULL
   }
 
   get_local_path <- function(remote_path) {
     if (identical(Sys.getenv("FP_MODE", ""), "vm")) return(NULL)
-
     mount_df <- get_mount_info()
-    if (!is.data.frame(mount_df) || nrow(mount_df) == 0) return(NULL)
-
-    hits <- which(vapply(
-      mount_df$remote_path,
-      function(mount_remote_path) grepl(mount_remote_path, remote_path),
-      logical(1L)
-    ))
-
-    if (!length(hits)) return(NULL)
-
-    hit <- hits[1]
-    matched_remote_path <- mount_df$remote_path[hit]
-    matched_local_path  <- mount_df$local_path[hit]
-
-    gsub(matched_remote_path, matched_local_path, remote_path)
+    matched_row <- mount_df[
+      vapply(
+        mount_df$remote_path,
+        function(mount_remote_path) {
+          grepl(mount_remote_path, remote_path)
+        },
+        logical(1L)
+      ),
+      ,
+      drop = FALSE
+    ]
+    if (nrow(matched_row) > 0) {
+      matched_remote_path <- matched_row$remote_path[1]
+      matched_local_path  <- matched_row$local_path[1]
+      return(gsub(matched_remote_path, matched_local_path, remote_path))
+    }
+    NULL
   }
 
 

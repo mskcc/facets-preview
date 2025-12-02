@@ -1647,6 +1647,7 @@ function(input, output, session) {
 
       # (keep your existing mount logic as-is)
       mount_df <- get_mount_info()
+      print(mount_df)
       matched_row <- mount_df[sapply(mount_df$local_path, function(local_path) {
         grepl(local_path, selected_sample_path)
       }), ]

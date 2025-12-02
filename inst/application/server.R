@@ -1873,9 +1873,13 @@ function(input, output, session) {
     } else {
       # Local: preserve mount/mapping behavior
       mount_df <- get_mount_info()
-      matched_row <- mount_df[sapply(mount_df$local_path, function(local_path) {
-        grepl(local_path, selected_sample_path)
-      }), ]
+      hit_idx <- vapply(
+        mount_df$local_path,
+        function(local_path) grepl(local_path, selected_sample_path, fixed = TRUE),
+        logical(1)
+      )
+      matched_row <- mount_df[hit_idx, , drop = FALSE]
+
       if (nrow(matched_row) > 0) {
         values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
       } else {

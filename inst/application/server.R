@@ -1698,30 +1698,42 @@ function(input, output, session) {
     #print("matchedRows")
 
     #Hide/show refit box when necessary.
+    #Hide/show refit box when necessary.
     observe({
+
+      # --- VM mode: always show refit panel, force remote behaviour, hide toggle ---
+      if (is_vm_mode()) {
+        shinyjs::show("fitPanel")
+        shinyjs::hide("use_remote_refit_switch")
+        shinyjs::show("remote_refit_options")
+        shinyWidgets::updateSwitchInput(session, "use_remote_refit_switch", value = TRUE)
+        return()
+      }
+
+      # --- Legacy behaviour (non-VM) unchanged ---
       if ((session_data$password_personal == 1 && !input$storageType) ||
           session_data$password_valid == 1 ||
           (is.null(get_remote_path(selected_sample_path)) ||
-           is_remote_file(selected_sample_path) &&
-           !is_restricted_path(get_remote_path(selected_sample_path)))) {
-        if (is_vm_mode()) {
-          # VM: always behave as "remote" but hide the toggle itself
-          shinyjs::hide("use_remote_refit_switch")
-          shinyjs::show("remote_refit_options")
-          shinyWidgets::updateSwitchInput(session, "use_remote_refit_switch", value = TRUE)
-        } else if (input$session_remote_refit) {
+           (is_remote_file(selected_sample_path) &&
+            !is_restricted_path(get_remote_path(selected_sample_path))))) {
+
+        if (input$session_remote_refit) {
+          shinyjs::show("fitPanel")
           shinyjs::show("use_remote_refit_switch")
           shinyjs::show("remote_refit_options")
           shinyWidgets::updateSwitchInput(session, "use_remote_refit_switch", value = TRUE)
         } else {
+          shinyjs::show("fitPanel")
           shinyjs::hide("use_remote_refit_switch")
           shinyjs::hide("remote_refit_options")
           shinyWidgets::updateSwitchInput(session, "use_remote_refit_switch", value = FALSE)
         }
+
       } else {
         shinyjs::hide("fitPanel")
       }
     })
+
 
     #Hide/show the remote/local storage box when necessary.
     observe({
@@ -4635,6 +4647,7 @@ function(input, output, session) {
           '--wrap="{refit_cmd}"'
         )
 
+        print(slurm_cmd)
         system(slurm_cmd, intern = TRUE)
         refit_cmd <- slurm_cmd
 
@@ -4701,7 +4714,8 @@ function(input, output, session) {
     ))
     values$submitted_refit <- c(values$submitted_refit, refit_dir)
 
-    if (!input$use_remote_refit_switch) {
+    # Legacy only: run command locally when not using remote refit
+    if (!is_vm_mode() && !input$use_remote_refit_switch) {
       system(refit_cmd, intern = TRUE)
     }
 

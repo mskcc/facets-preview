@@ -277,7 +277,7 @@ ui <-
                      ),
                      div(
                        style = "padding-left: 20px; padding-top: 10px; width: 50%;",  # Adjust the width of the password field
-                       passwordInput(inputId = "auth_password", label = "PasswordDev", value = "", width = "100%")
+                       passwordInput(inputId = "auth_password", label = "Password", value = "", width = "100%")
                      ),
 
                      # Update Session and Continue buttons

@@ -1704,15 +1704,16 @@ function(input, output, session) {
           (is.null(get_remote_path(selected_sample_path)) ||
            is_remote_file(selected_sample_path) &&
            !is_restricted_path(get_remote_path(selected_sample_path)))) {
-        shinyjs::show("fitPanel")
-        if(input$session_remote_refit)
-        {
+        if (is_vm_mode()) {
+          # VM: always behave as "remote" but hide the toggle itself
+          shinyjs::hide("use_remote_refit_switch")
+          shinyjs::show("remote_refit_options")
+          shinyWidgets::updateSwitchInput(session, "use_remote_refit_switch", value = TRUE)
+        } else if (input$session_remote_refit) {
           shinyjs::show("use_remote_refit_switch")
           shinyjs::show("remote_refit_options")
           shinyWidgets::updateSwitchInput(session, "use_remote_refit_switch", value = TRUE)
-        }
-        else
-        {
+        } else {
           shinyjs::hide("use_remote_refit_switch")
           shinyjs::hide("remote_refit_options")
           shinyWidgets::updateSwitchInput(session, "use_remote_refit_switch", value = FALSE)
@@ -4599,10 +4600,10 @@ function(input, output, session) {
 
 
 
-    # If the switch is on, submit as the LSF job.
+    # If the switch is on, submit as a batch job.
     if (input$use_remote_refit_switch) {
 
-      #Validate our inputs.
+      # Validate scheduler resource inputs
       if (!grepl("^\\d{1,2}:\\d{2}$", input$textInput_timeLimit)) {
         showNotification("Time Limit must be in the format H:MM.", type = "error")
         return(NULL)
@@ -4618,49 +4619,76 @@ function(input, output, session) {
         return(NULL)
       }
 
-      counts_file_name = selected_counts_file()
-      if(is.null(counts_file_name))
-      {
-        set_default_countFile()
-        counts_file_name = selected_counts_file()
+      if (is_vm_mode()) {
+        ## VM: submit directly to Slurm with sbatch, using the already-built refit_cmd
+        base_refit_name <- basename(refit_cmd_file)
+        slurm_time <- paste0(input$textInput_timeLimit, ":00")  # H:MM -> H:MM:SS
+
+        slurm_cmd <- glue(
+          'sbatch ',
+          '--time={slurm_time} ',
+          '--mem={input$textInput_memory}G ',
+          '--cpus-per-task={input$textInput_cores} ',
+          '-J "refit_{base_refit_name}" ',
+          '-o {input$remote_refit_path}log/{base_refit_name}_%j.out ',
+          '-e {input$remote_refit_path}log/{base_refit_name}_%j.err ',
+          '--wrap="{refit_cmd}"'
+        )
+
+        system(slurm_cmd, intern = TRUE)
+        refit_cmd <- slurm_cmd
+
+      } else {
+        ## Non-VM: legacy LSF path via queue file (unchanged)
+
+        counts_file_name <- selected_counts_file()
+        if (is.null(counts_file_name)) {
+          set_default_countFile()
+          counts_file_name <- selected_counts_file()
+        }
+
+        refit_dir <- paste0(run_path, refit_name)
+
+        # Build our command for submitting to bsub.
+        counts_file_name <- get_remote_path(counts_file_name)
+        refit_dir_remote <- get_remote_path(refit_dir)
+
+        refit_cmd <- glue(paste0(
+          '/opt/common/CentOS_7/R/R-3.6.3/bin/Rscript  ',
+          '{input$remote_refit_path}lib/facets-suite-2.0.8/run-facets-wrapper.R ',
+          '--facets-lib-path {input$remote_refit_path}lib/  ',
+          '--counts-file {counts_file_name} ',
+          '--sample-id {sample_id} ',
+          '--snp-window-size {new_snp_window_size} ',
+          '--normal-depth {new_normal_depth} ',
+          ifelse(with_dipLogR, '--dipLogR {new_diplogR} ', ''),
+          '--min-nhet {new_hisens_m} ',
+          '--purity-min-nhet {new_purity_m} ',
+          '--seed 100 ',
+          '--cval {new_hisens_c} --purity-cval {new_purity_c} --legacy-output T -e ',
+          '--genome hg19 --directory {refit_dir_remote} '
+        ))
+
+        base_refit_name <- basename(refit_cmd_file)
+
+        lsf_cmd <- glue(
+          'bsub -J "refit_{base_refit_name}" ',
+          '-R "rusage[mem={input$textInput_memory}G]" ',
+          '-We {input$textInput_timeLimit} ',
+          '-n {input$textInput_cores} ',
+          '-o {input$remote_refit_path}log/{base_refit_name}_bsub.out ',
+          '-e {input$remote_refit_path}log/{base_refit_name}_bsub.err ',
+          '{refit_cmd}'
+        )
+
+        # Write the command to our listener queue directory.
+        refit_cmd <- lsf_cmd
+        output_file_path <- glue("{input$mount_refit_path}queue/refit_{base_refit_name}")
+        writeLines(refit_cmd, con = output_file_path)
+        system(glue("chmod 775 {output_file_path}"))
       }
-      refit_dir <- paste0(run_path, refit_name)
-
-      #Build our command for submitting to bsub.
-      counts_file_name = get_remote_path(counts_file_name)
-      refit_dir_remote = get_remote_path(refit_dir)
-
-      refit_cmd = glue(paste0('/opt/common/CentOS_7/R/R-3.6.3/bin/Rscript  ',
-                              '{input$remote_refit_path}lib/facets-suite-2.0.8/run-facets-wrapper.R ',
-                              '--facets-lib-path {input$remote_refit_path}lib/  ',
-                              '--counts-file {counts_file_name} ',
-                              '--sample-id {sample_id} ',
-                              '--snp-window-size {new_snp_window_size} ',
-                              '--normal-depth {new_normal_depth} ',
-                              ifelse(with_dipLogR, '--dipLogR {new_diplogR} ', ''),
-                              '--min-nhet {new_hisens_m} ',
-                              '--purity-min-nhet {new_purity_m} ',
-                              '--seed 100 ',
-                              '--cval {new_hisens_c} --purity-cval {new_purity_c} --legacy-output T -e ',
-                              '--genome hg19 --directory {refit_dir_remote} '))
-
-
-      base_refit_name <- basename(refit_cmd_file)
-
-      lsf_cmd <- glue('bsub -J "refit_{base_refit_name}" ',
-                      '-R "rusage[mem={input$textInput_memory}G]" ',
-                      '-We {input$textInput_timeLimit} ',
-                      '-n {input$textInput_cores} ',
-                      '-o {input$remote_refit_path}log/{base_refit_name}_bsub.out ',
-                      '-e {input$remote_refit_path}log/{base_refit_name}_bsub.err ',
-                      '{refit_cmd}')
-
-      #Write the command to our listener queue directory.
-      refit_cmd <- lsf_cmd
-      output_file_path <- glue("{input$mount_refit_path}queue/refit_{base_refit_name}")
-      writeLines(refit_cmd, con = output_file_path)
-      system(glue("chmod 775 {output_file_path}"))
     }
+
 
     #print("REFITTT")
     print(refit_cmd)

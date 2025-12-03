@@ -1698,56 +1698,47 @@ function(input, output, session) {
     #print("matchedRows")
 
     #Hide/show refit box when necessary.
-    # --- Refit UI: hide toggle in VM, keep legacy behaviour locally ----------
     observe({
-      # Default: local/non-VM behaviour exactly as before
-      use_remote_refit <- TRUE
+      if (values$has_both == 1 &&
+          !is.null(values$sample_runs) &&
+          nrow(values$sample_runs) > 0) {
 
-      if (is_vm_mode()) {
-        # VM mode:
-        # - Always use "remote" refit semantics
-        # - Hide the toggle
-        # - Show the remote refit options
-        # - Use fp_session_path() as the base path
-        use_remote_refit <- TRUE
+        shinyjs::show("fitPanel")
 
-        shinyjs::hide("use_remote_refit_switch")
-        shinyjs::show("remote_refit_options")
-
-        session_data$session_remote_refit <- TRUE
-        session_data$remote_refit_path    <- fp_session_path()
-
-        updateTextInput(
-          session,
-          "remote_refit_path",
-          value = fp_session_path()
-        )
-
-      } else {
-        # Legacy / non-VM behaviour:
-        # restore old logic using session_remote_refit if present
-        if (!is.null(session_data$session_remote_refit)) {
-          use_remote_refit <- isTRUE(session_data$session_remote_refit)
-        } else {
-          use_remote_refit <- TRUE
-        }
-
-        shinyWidgets::updateSwitchInput(
-          session,
-          "use_remote_refit_switch",
-          value = use_remote_refit
-        )
-
-        if (use_remote_refit) {
+        if (is_vm_mode()) {
+          # VM mode: always remote, hide toggle, show scheduler options
+          shinyjs::hide("use_remote_refit_switch")
           shinyjs::show("remote_refit_options")
+          shinyWidgets::updateSwitchInput(
+            session,
+            "use_remote_refit_switch",
+            value = TRUE
+          )
         } else {
-          shinyjs::hide("remote_refit_options")
+          # Legacy (non-VM): original logic, toggle visible
+          if (session_data$session_remote_refit == 1) {
+            shinyWidgets::updateSwitchInput(
+              session,
+              "use_remote_refit_switch",
+              value = TRUE
+            )
+            shinyjs::show("use_remote_refit_switch")
+            shinyjs::show("remote_refit_options")
+          } else {
+            shinyWidgets::updateSwitchInput(
+              session,
+              "use_remote_refit_switch",
+              value = FALSE
+            )
+            shinyjs::show("use_remote_refit_switch")
+            shinyjs::hide("remote_refit_options")
+          }
         }
-
-        # Make sure the toggle itself is visible in legacy mode
-        shinyjs::show("use_remote_refit_switch")
+      } else {
+        shinyjs::hide("fitPanel")
       }
     })
+
 
     observeEvent(input$use_remote_refit_switch, {
       if (is_vm_mode()) {
@@ -4502,43 +4493,27 @@ function(input, output, session) {
 
 
   observeEvent(input$button_refit, {
-
-    if (input$selectInput_selectFit == "Not selected") {
+    # Ensure all numeric parameters are actually numeric
+    if (!suppressWarnings(all(!is.na(as.numeric(c(
+      input$textInput_newPurityCval,
+      input$textInput_newHisensCval,
+      input$textInput_newPurityMinNHet,
+      input$textInput_newHisensMinNHet,
+      input$textInput_newNormalDepth,
+      input$textInput_newSnpWindowSize
+    )))))) {
       showModal(modalDialog(
-        title = "Cannot submit refit", paste0("select 'any' fit first and then click 'Run'")
-      ))
-      return(NULL)
-    }
-
-    # Enforce required values for all parameters.
-    if (input$textInput_newPurityCval == "" || input$textInput_newHisensCval == "" ||
-        input$textInput_newPurityMinNHet == "" || input$textInput_newHisensMinNHet == "" ||
-        input$textInput_newNormalDepth == "" || input$textInput_newSnpWindowSize == "" ||
-        input$selectInput_newFacetsLib == "") {
-      showModal(modalDialog(
-        title = "Cannot submit refit", paste0("All re-fit parameters must be populated")
-      ))
-      return(NULL)
-    }
-
-    if (!all(sapply(c(input$textInput_newPurityCval,
-                      input$textInput_newHisensCval,
-                      input$textInput_newPurityMinNHet,
-                      input$textInput_newHisensMinNHet,
-                      input$textInput_newNormalDepth,
-                      input$textInput_newSnpWindowSize),
-                    function(x) grepl("^[0-9.]+$", x)))) {
-      showModal(modalDialog(
-        title = "Cannot submit refit", paste0("Non-numeric characters are found in re-fit parameters")
+        title = "Cannot submit refit",
+        paste0("Non-numeric characters are found in re-fit parameters")
       ))
       return(NULL)
     }
 
     with_dipLogR <- TRUE
-    refit_note <- ""
+    refit_note   <- ""
     if (input$textInput_newDipLogR == "") {
       with_dipLogR <- FALSE
-      refit_note <- "Refit job is submitted without a dipLogR and therefore will be determined by purity run."
+      refit_note   <- "Refit job is submitted without a dipLogR and therefore will be determined by purity run."
     }
 
     sample_id <- values$sample_runs$tumor_sample_id[1]
@@ -4560,7 +4535,6 @@ function(input, output, session) {
         matched_row <- mount_df[matched_idx, , drop = FALSE]
 
         if (nrow(matched_row) > 0) {
-          # Check if the remote_path is restricted
           if (is_restricted_path(matched_row$remote_path)) {
             if (session_data$password_valid == 1 || !is_remote_file(selected_sample_path)) {
               showNotification("Authorized Refit.", type = "message")
@@ -4576,16 +4550,17 @@ function(input, output, session) {
       }
     }
 
-    # Set up parameters for the new refit
+    # --- Set up parameters for the new refit -------------------------------
     run_path <- selected_run$path[1]
 
-    new_purity_c       <- as.numeric(input$textInput_newPurityCval)
-    new_hisens_c       <- as.numeric(input$textInput_newHisensCval)
-    new_purity_m       <- as.numeric(input$textInput_newPurityMinNHet)
-    new_hisens_m       <- as.numeric(input$textInput_newHisensMinNHet)
-    new_normal_depth   <- as.numeric(input$textInput_newNormalDepth)
-    new_snp_window_size<- as.numeric(input$textInput_newSnpWindowSize)
-    new_facets_lib     <- input$selectInput_newFacetsLib
+    new_purity_c        <- as.numeric(input$textInput_newPurityCval)
+    new_hisens_c        <- as.numeric(input$textInput_newHisensCval)
+    new_purity_m        <- as.numeric(input$textInput_newPurityMinNHet)
+    new_hisens_m        <- as.numeric(input$textInput_newHisensMinNHet)
+    new_normal_depth    <- as.numeric(input$textInput_newNormalDepth)
+    new_snp_window_size <- as.numeric(input$textInput_newSnpWindowSize)
+    new_facets_lib      <- input$selectInput_newFacetsLib
+    new_dipLogR         <- if (with_dipLogR) as.numeric(input$textInput_newDipLogR) else NA_real_
 
     if (!is.null(selected_run$purity_run_cval)) {
       default_run_facets_version <- selected_run$purity_run_version[1]
@@ -4601,8 +4576,9 @@ function(input, output, session) {
     supported_facets_versions <- values$config$facets_lib %>% data.table
     if (!(facets_version_to_use %in% supported_facets_versions$version)) {
       showModal(modalDialog(
-        title = "Not submitted",
-        paste0("Current version of facets-preview does not support refits using facets version: ", facets_version_to_use)
+        title  = "Not submitted",
+        paste0("Current version of facets-preview does not support refits using facets version: ",
+               facets_version_to_use)
       ))
       return(NULL)
     }
@@ -4617,8 +4593,8 @@ function(input, output, session) {
       ifelse(new_facets_lib != selected_run$purity_run_version, "_v{facets_version_to_use}", "")
     )
 
-    name_tag  <- glue(name_tag)
-    refit_name<- glue("/refit_{name_tag}")
+    name_tag   <- glue(name_tag)
+    refit_name <- glue("/refit_{name_tag}")
 
     cmd_script_pfx <- paste0(run_path, "/refit_jobs/facets_refit_cmd_")
     refit_dir      <- paste0(run_path, refit_name)
@@ -4633,6 +4609,7 @@ function(input, output, session) {
 
     refit_cmd_file <- glue("{cmd_script_pfx}{sample_id}_{name_tag}.sh")
 
+    # Base command: wrapper + lib path + counts + params (same for both modes)
     refit_cmd <- glue(paste0(
       "{values$config$r_script_path}  ",
       "{input$remote_refit_path}lib/facets-suite-2.0.8/run-facets-wrapper.R ",
@@ -4649,7 +4626,7 @@ function(input, output, session) {
       "--genome hg19 --directory {refit_dir} "
     ))
 
-    # --- Remote branch: VM -> slurm, non-VM -> existing LSF/queue -------
+    # --- Remote branch: VM -> Slurm, non-VM -> original LSF/queue ----------
     if (input$use_remote_refit_switch) {
 
       # Validate scheduler resource inputs
@@ -4667,18 +4644,18 @@ function(input, output, session) {
       }
 
       if (is_vm_mode()) {
-        # VM: submit refit_cmd via Slurm directly
+        # VM mode: submit via Slurm directly, using refit_cmd as the wrapped payload
         base_refit_name <- basename(refit_cmd_file)
         slurm_time      <- paste0(input$textInput_timeLimit, ":00")  # H:MM -> H:MM:SS
 
         slurm_cmd <- glue(
-          'sbatch ',
-          '--time={slurm_time} ',
-          '--mem={input$textInput_memory}G ',
-          '--cpus-per-task={input$textInput_cores} ',
+          "sbatch ",
+          "--time={slurm_time} ",
+          "--mem={input$textInput_memory}G ",
+          "--cpus-per-task={input$textInput_cores} ",
           '-J "refit_{base_refit_name}" ',
-          '-o {input$remote_refit_path}log/{base_refit_name}_%j.out ',
-          '-e {input$remote_refit_path}log/{base_refit_name}_%j.err ',
+          "-o {input$remote_refit_path}log/{base_refit_name}_%j.out ",
+          "-e {input$remote_refit_path}log/{base_refit_name}_%j.err ",
           '--wrap="{refit_cmd}"'
         )
 
@@ -4687,17 +4664,18 @@ function(input, output, session) {
         refit_cmd <- slurm_cmd
 
       } else {
-        # Non-VM: original LSF + queue behaviour
+        # Legacy non-VM: original LSF + queue behaviour
         counts_file_name <- selected_counts_file()
         if (is.null(counts_file_name)) {
           set_default_countFile()
           counts_file_name <- selected_counts_file()
         }
+
         refit_dir <- paste0(run_path, refit_name)
 
         # Build our command for submitting to bsub on the remote host
-        counts_file_name <- get_remote_path(counts_file_name)
-        refit_dir_remote <- get_remote_path(refit_dir)
+        counts_file_name  <- get_remote_path(counts_file_name)
+        refit_dir_remote  <- get_remote_path(refit_dir)
 
         refit_cmd <- glue(paste0(
           "/opt/common/CentOS_7/R/R-3.6.3/bin/Rscript  ",
@@ -4720,14 +4698,13 @@ function(input, output, session) {
         lsf_cmd <- glue(
           'bsub -J "refit_{base_refit_name}" ',
           '-R "rusage[mem={input$textInput_memory}G]" ',
-          '-We {input$textInput_timeLimit} ',
-          '-n {input$textInput_cores} ',
-          '-o {input$remote_refit_path}log/{base_refit_name}_bsub.out ',
-          '-e {input$remote_refit_path}log/{base_refit_name}_bsub.err ',
-          '{refit_cmd}'
+          "-We {input$textInput_timeLimit} ",
+          "-n {input$textInput_cores} ",
+          "-o {input$remote_refit_path}log/{base_refit_name}_bsub.out ",
+          "-e {input$remote_refit_path}log/{base_refit_name}_bsub.err ",
+          "{refit_cmd}"
         )
 
-        # Write the command to our listener queue directory.
         refit_cmd        <- lsf_cmd
         output_file_path <- glue("{input$mount_refit_path}queue/refit_{base_refit_name}")
         writeLines(refit_cmd, con = output_file_path)
@@ -4746,13 +4723,14 @@ function(input, output, session) {
     ))
     values$submitted_refit <- c(values$submitted_refit, refit_dir)
 
-    # Local execution ONLY in non-VM mode when not using remote refit
+    # Local execution ONLY in non-VM mode when NOT using remote refit
     if (!is_vm_mode() && !input$use_remote_refit_switch) {
       system(refit_cmd, intern = TRUE)
     }
 
     selected_counts_file()
   })
+
 
 
 }

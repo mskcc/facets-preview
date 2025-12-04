@@ -4627,47 +4627,57 @@ function(input, output, session) {
     ))
 
     # --- Remote branch: VM -> direct Rscript, non-VM -> original LSF/queue ----
+    # If the switch is on, submit as a batch job.
     if (input$use_remote_refit_switch) {
 
-      # Validate scheduler resource inputs (still needed for non-VM LSF)
+      # Validate scheduler resource inputs (still used in legacy non-VM mode)
       if (!grepl("^\\d{1,2}:\\d{2}$", input$textInput_timeLimit)) {
         showNotification("Time Limit must be in the format H:MM.", type = "error")
         return(NULL)
       }
+
       if (!grepl("^\\d+$", input$textInput_cores)) {
         showNotification("Num. Cores must be an integer.", type = "error")
         return(NULL)
       }
+
       if (!grepl("^\\d+$", input$textInput_memory)) {
         showNotification("Memory must be an integer.", type = "error")
         return(NULL)
       }
 
       if (is_vm_mode()) {
-        # VM mode: run facets-suite directly via Rscript, no Slurm
-        # counts_file_name and refit_dir are already set above
+        ## VM mode: write a .sh file into /data1/core005/facetflow/fp/queue and chmod 775
+
+        # Build the Rscript command we want to run on the cluster
         refit_cmd <- glue(paste0(
-          "/admin/software/spack/0.23/spack/opt/spack/linux-rhel8-icelake/gcc-12.2.0/r-3.6.3-x2oll3y4cue6hqe7iijy5l72xycngdxo/bin/Rscript ",
-          "/data1/core005/facetflow/facets-suite/run-facets-wrapper.R ",
-          " --facets-lib-path /data1/core005/facetflow/Rlib ",
-          " --counts-file {counts_file_name} ",
-          " --sample-id {sample_id} ",
-          " --snp-window-size {new_snp_window_size} ",
-          " --normal-depth {new_normal_depth} ",
-          ifelse(with_dipLogR, " --dipLogR {new_dipLogR} ", ""),
-          " --min-nhet {new_hisens_m} ",
-          " --purity-min-nhet {new_purity_m} ",
-          " --seed 100 ",
-          " --cval {new_hisens_c} --purity-cval {new_purity_c} --legacy-output T -e ",
-          " --genome hg19 --directory {refit_dir} "
+          '/admin/software/spack/0.23/spack/opt/spack/linux-rhel8-icelake/gcc-12.2.0/r-3.6.3-x2oll3y4cue6hqe7iijy5l72xycngdxo/bin/Rscript ',
+          '/data1/core005/facetflow/facets-suite/run-facets-wrapper.R ',
+          '--facets-lib-path /data1/core005/facetflow/Rlib ',
+          '--counts-file {counts_file_name} ',
+          '--sample-id {sample_id} ',
+          '--snp-window-size {new_snp_window_size} ',
+          '--normal-depth {new_normal_depth} ',
+          ifelse(with_dipLogR, '--dipLogR {new_diplogR} ', ''),
+          '--min-nhet {new_hisens_m} ',
+          '--purity-min-nhet {new_purity_m} ',
+          '--seed 100 ',
+          '--cval {new_hisens_c} --purity-cval {new_purity_c} --legacy-output T -e ',
+          '--genome hg19 --directory {refit_dir} '
         ))
 
-        print(refit_cmd)
-        # fire it immediately on the VM
-        try(system(refit_cmd, intern = TRUE), silent = TRUE)
+        # Use the same base name as the refit_cmd_file, but in the fp queue
+        base_refit_name <- basename(refit_cmd_file)
+        queue_file_path <- glue('/data1/core005/facetflow/fp/queue/refit_{base_refit_name}')
+
+        writeLines(refit_cmd, con = queue_file_path)
+        system(glue('chmod 775 {queue_file_path}'))
+
+        # refit_cmd now represents the actual Rscript command for logging/printing later
 
       } else {
-        # Non-VM: original LSF + queue behaviour
+        ## Non-VM: legacy LSF path via queue file (unchanged)
+
         counts_file_name <- selected_counts_file()
         if (is.null(counts_file_name)) {
           set_default_countFile()
@@ -4681,19 +4691,19 @@ function(input, output, session) {
         refit_dir_remote <- get_remote_path(refit_dir)
 
         refit_cmd <- glue(paste0(
-          "/opt/common/CentOS_7/R/R-3.6.3/bin/Rscript  ",
-          "{input$remote_refit_path}lib/facets-suite-2.0.8/run-facets-wrapper.R ",
-          " --facets-lib-path {input$remote_refit_path}lib/  ",
-          " --counts-file {counts_file_name} ",
-          " --sample-id {sample_id} ",
-          " --snp-window-size {new_snp_window_size} ",
-          " --normal-depth {new_normal_depth} ",
-          ifelse(with_dipLogR, " --dipLogR {new_dipLogR} ", ""),
-          " --min-nhet {new_hisens_m} ",
-          " --purity-min-nhet {new_purity_m} ",
-          " --seed 100 ",
-          " --cval {new_hisens_c} --purity-cval {new_purity_c} --legacy-output T -e ",
-          " --genome hg19 --directory {refit_dir_remote} "
+          '/opt/common/CentOS_7/R/R-3.6.3/bin/Rscript  ',
+          '{input$remote_refit_path}lib/facets-suite-2.0.8/run-facets-wrapper.R ',
+          '--facets-lib-path {input$remote_refit_path}lib/  ',
+          '--counts-file {counts_file_name} ',
+          '--sample-id {sample_id} ',
+          '--snp-window-size {new_snp_window_size} ',
+          '--normal-depth {new_normal_depth} ',
+          ifelse(with_dipLogR, '--dipLogR {new_diplogR} ', ''),
+          '--min-nhet {new_hisens_m} ',
+          '--purity-min-nhet {new_purity_m} ',
+          '--seed 100 ',
+          '--cval {new_hisens_c} --purity-cval {new_purity_c} --legacy-output T -e ',
+          '--genome hg19 --directory {refit_dir_remote} '
         ))
 
         base_refit_name <- basename(refit_cmd_file)
@@ -4709,12 +4719,13 @@ function(input, output, session) {
         )
 
         # Write the command to our listener queue directory.
-        refit_cmd        <- lsf_cmd
-        output_file_path <- glue("{input$mount_refit_path}queue/refit_{base_refit_name}")
+        refit_cmd <- lsf_cmd
+        output_file_path <- glue('{input$mount_refit_path}queue/refit_{base_refit_name}')
         writeLines(refit_cmd, con = output_file_path)
-        system(glue("chmod 775 {output_file_path}"))
+        system(glue('chmod 775 {output_file_path}'))
       }
     }
+
 
 
     print(refit_cmd)

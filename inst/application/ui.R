@@ -517,7 +517,7 @@ ui <-
                                     inputId = "use_remote_refit_switch",
                                     label = "Execute On",
                                     value = FALSE,  # Default to "Local"
-                                    onLabel = "Remote",
+                                    onLabel = if (identical(Sys.getenv("FP_MODE"), "vm")) "Iris" else "Remote",
                                     offLabel = "Local",
                                     size = "small",
                                     inline = TRUE,

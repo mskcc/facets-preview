@@ -1706,10 +1706,7 @@ function(input, output, session) {
         shinyjs::show("fitPanel")
 
         if (is_vm_mode()) {
-          # VM mode: always remote, hide toggle, show remote options
-          shinyjs::hide("use_remote_refit_switch")
-          shinyjs::show("remote_refit_options")
-
+          # VM mode: always remote, toggle locked ON and visible, show scheduler options
           shinyWidgets::updateSwitchInput(
             session,
             "use_remote_refit_switch",
@@ -1718,21 +1715,25 @@ function(input, output, session) {
 
           session_data$session_remote_refit <- TRUE
 
+          shinyjs::show("use_remote_refit_switch")
+          shinyjs::show("remote_refit_options")
         } else {
           # Legacy (non-VM): original logic, toggle visible
-          use_remote <- isTRUE(session_data$session_remote_refit)
-
-          shinyWidgets::updateSwitchInput(
-            session,
-            "use_remote_refit_switch",
-            value = use_remote
-          )
-
-          shinyjs::show("use_remote_refit_switch")
-
-          if (use_remote) {
+          if (session_data$session_remote_refit == 1) {
+            shinyWidgets::updateSwitchInput(
+              session,
+              "use_remote_refit_switch",
+              value = TRUE
+            )
+            shinyjs::show("use_remote_refit_switch")
             shinyjs::show("remote_refit_options")
           } else {
+            shinyWidgets::updateSwitchInput(
+              session,
+              "use_remote_refit_switch",
+              value = FALSE
+            )
+            shinyjs::show("use_remote_refit_switch")
             shinyjs::hide("remote_refit_options")
           }
         }
@@ -1741,13 +1742,26 @@ function(input, output, session) {
       }
     })
 
+
     observeEvent(input$use_remote_refit_switch, {
       if (is_vm_mode()) {
-        # In VM we ignore the toggle entirely; it is hidden anyway.
+        # In VM, force the switch to stay ON and always use remote/Iris
+        if (!isTRUE(input$use_remote_refit_switch)) {
+          shinyWidgets::updateSwitchInput(
+            session,
+            "use_remote_refit_switch",
+            value = TRUE
+          )
+        }
+
+        session_data$session_remote_refit <- TRUE
+        shinyjs::show("remote_refit_options")
         return()
       }
 
+      # Legacy (non-VM) behaviour
       use_remote <- isTRUE(input$use_remote_refit_switch)
+
       session_data$session_remote_refit <- use_remote
 
       if (use_remote) {
@@ -1756,6 +1770,7 @@ function(input, output, session) {
         shinyjs::hide("remote_refit_options")
       }
     })
+
 
 
 

@@ -4626,10 +4626,10 @@ function(input, output, session) {
       "--genome hg19 --directory {refit_dir} "
     ))
 
-    # --- Remote branch: VM -> Slurm, non-VM -> original LSF/queue ----------
+    # --- Remote branch: VM -> direct Rscript, non-VM -> original LSF/queue ----
     if (input$use_remote_refit_switch) {
 
-      # Validate scheduler resource inputs
+      # Validate scheduler resource inputs (still needed for non-VM LSF)
       if (!grepl("^\\d{1,2}:\\d{2}$", input$textInput_timeLimit)) {
         showNotification("Time Limit must be in the format H:MM.", type = "error")
         return(NULL)
@@ -4644,27 +4644,30 @@ function(input, output, session) {
       }
 
       if (is_vm_mode()) {
-        # VM mode: submit via Slurm directly, using refit_cmd as the wrapped payload
-        base_refit_name <- basename(refit_cmd_file)
-        slurm_time      <- paste0(input$textInput_timeLimit, ":00")  # H:MM -> H:MM:SS
+        # VM mode: run facets-suite directly via Rscript, no Slurm
+        # counts_file_name and refit_dir are already set above
+        refit_cmd <- glue(paste0(
+          "/admin/software/spack/0.23/spack/opt/spack/linux-rhel8-icelake/gcc-12.2.0/r-3.6.3-x2oll3y4cue6hqe7iijy5l72xycngdxo/bin/Rscript ",
+          "/data1/core005/facetflow/facets-suite/run-facets-wrapper.R ",
+          " --facets-lib-path /data1/core005/facetflow/Rlib ",
+          " --counts-file {counts_file_name} ",
+          " --sample-id {sample_id} ",
+          " --snp-window-size {new_snp_window_size} ",
+          " --normal-depth {new_normal_depth} ",
+          ifelse(with_dipLogR, " --dipLogR {new_dipLogR} ", ""),
+          " --min-nhet {new_hisens_m} ",
+          " --purity-min-nhet {new_purity_m} ",
+          " --seed 100 ",
+          " --cval {new_hisens_c} --purity-cval {new_purity_c} --legacy-output T -e ",
+          " --genome hg19 --directory {refit_dir} "
+        ))
 
-        slurm_cmd <- glue(
-          "sbatch ",
-          "--time={slurm_time} ",
-          "--mem={input$textInput_memory}G ",
-          "--cpus-per-task={input$textInput_cores} ",
-          '-J "refit_{base_refit_name}" ',
-          "-o {input$remote_refit_path}log/{base_refit_name}_%j.out ",
-          "-e {input$remote_refit_path}log/{base_refit_name}_%j.err ",
-          '--wrap="{refit_cmd}"'
-        )
-
-        print(slurm_cmd)
-        try(system(slurm_cmd, intern = TRUE), silent = TRUE)
-        refit_cmd <- slurm_cmd
+        print(refit_cmd)
+        # fire it immediately on the VM
+        try(system(refit_cmd, intern = TRUE), silent = TRUE)
 
       } else {
-        # Legacy non-VM: original LSF + queue behaviour
+        # Non-VM: original LSF + queue behaviour
         counts_file_name <- selected_counts_file()
         if (is.null(counts_file_name)) {
           set_default_countFile()
@@ -4674,23 +4677,23 @@ function(input, output, session) {
         refit_dir <- paste0(run_path, refit_name)
 
         # Build our command for submitting to bsub on the remote host
-        counts_file_name  <- get_remote_path(counts_file_name)
-        refit_dir_remote  <- get_remote_path(refit_dir)
+        counts_file_name <- get_remote_path(counts_file_name)
+        refit_dir_remote <- get_remote_path(refit_dir)
 
         refit_cmd <- glue(paste0(
           "/opt/common/CentOS_7/R/R-3.6.3/bin/Rscript  ",
           "{input$remote_refit_path}lib/facets-suite-2.0.8/run-facets-wrapper.R ",
-          "--facets-lib-path {input$remote_refit_path}lib/  ",
-          "--counts-file {counts_file_name} ",
-          "--sample-id {sample_id} ",
-          "--snp-window-size {new_snp_window_size} ",
-          "--normal-depth {new_normal_depth} ",
-          ifelse(with_dipLogR, "--dipLogR {new_dipLogR} ", ""),
-          "--min-nhet {new_hisens_m} ",
-          "--purity-min-nhet {new_purity_m} ",
-          "--seed 100 ",
-          "--cval {new_hisens_c} --purity-cval {new_purity_c} --legacy-output T -e ",
-          "--genome hg19 --directory {refit_dir_remote} "
+          " --facets-lib-path {input$remote_refit_path}lib/  ",
+          " --counts-file {counts_file_name} ",
+          " --sample-id {sample_id} ",
+          " --snp-window-size {new_snp_window_size} ",
+          " --normal-depth {new_normal_depth} ",
+          ifelse(with_dipLogR, " --dipLogR {new_dipLogR} ", ""),
+          " --min-nhet {new_hisens_m} ",
+          " --purity-min-nhet {new_purity_m} ",
+          " --seed 100 ",
+          " --cval {new_hisens_c} --purity-cval {new_purity_c} --legacy-output T -e ",
+          " --genome hg19 --directory {refit_dir_remote} "
         ))
 
         base_refit_name <- basename(refit_cmd_file)
@@ -4698,19 +4701,21 @@ function(input, output, session) {
         lsf_cmd <- glue(
           'bsub -J "refit_{base_refit_name}" ',
           '-R "rusage[mem={input$textInput_memory}G]" ',
-          "-We {input$textInput_timeLimit} ",
-          "-n {input$textInput_cores} ",
-          "-o {input$remote_refit_path}log/{base_refit_name}_bsub.out ",
-          "-e {input$remote_refit_path}log/{base_refit_name}_bsub.err ",
-          "{refit_cmd}"
+          '-We {input$textInput_timeLimit} ',
+          '-n {input$textInput_cores} ',
+          '-o {input$remote_refit_path}log/{base_refit_name}_bsub.out ',
+          '-e {input$remote_refit_path}log/{base_refit_name}_bsub.err ',
+          '{refit_cmd}'
         )
 
+        # Write the command to our listener queue directory.
         refit_cmd        <- lsf_cmd
         output_file_path <- glue("{input$mount_refit_path}queue/refit_{base_refit_name}")
         writeLines(refit_cmd, con = output_file_path)
         system(glue("chmod 775 {output_file_path}"))
       }
     }
+
 
     print(refit_cmd)
 

@@ -498,7 +498,7 @@ function(input, output, session) {
     if (!is_vm_mode()) return()
 
     # Hide the whole UI blocks (make sure you added these ids in ui.R)
-    for (sec in c("section_tempo", "section_tcga", "section_refit")) {
+    for (sec in c("section_impact", "section_tempo", "section_tcga", "section_refit")) {
       shinyjs::hide(sec)
     }
 

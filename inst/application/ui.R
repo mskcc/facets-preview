@@ -516,7 +516,7 @@ ui <-
                                   shinyWidgets::switchInput(
                                     inputId = "use_remote_refit_switch",
                                     label = "Execute On",
-                                    value = FALSE,  # Default to "Local"
+                                    value = identical(Sys.getenv("FP_MODE"), "vm"),
                                     onLabel = if (identical(Sys.getenv("FP_MODE"), "vm")) "Iris" else "Remote",
                                     offLabel = "Local",
                                     size = "small",

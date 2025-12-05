@@ -1774,6 +1774,7 @@ function(input, output, session) {
       }
     })
 
+
     #Hide/show the remote/local storage box when necessary.
     observe({
       # VM mode: always hide storage type UI
@@ -2953,18 +2954,18 @@ function(input, output, session) {
   })
 
 
-  observeEvent(input$use_remote_refit_switch, {
-    if (is_vm_mode()) {
-      shinyjs::show("remote_refit_options", anim = TRUE, animType = "slide")
-      return()
-    }
+#  observeEvent(input$use_remote_refit_switch, {
+#    if (is_vm_mode()) {
+#      shinyjs::show("remote_refit_options", anim = TRUE, animType = "slide")
+#      return()
+#    }
 
-    if (input$use_remote_refit_switch) {
-      shinyjs::show("remote_refit_options", anim = TRUE, animType = "slide")
-    } else {
-      shinyjs::hide("remote_refit_options", anim = TRUE, animType = "slide")
-    }
-  })
+#    if (input$use_remote_refit_switch) {
+#      shinyjs::show("remote_refit_options", anim = TRUE, animType = "slide")
+#    } else {
+#      shinyjs::hide("remote_refit_options", anim = TRUE, animType = "slide")
+#    }
+#  })
 
 
   observeEvent(input$button_addReview, {

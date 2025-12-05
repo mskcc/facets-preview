@@ -1589,6 +1589,19 @@ function(input, output, session) {
     shinyjs::hide("storageTypeDiv_compare")
   })
 
+  # Lock the Execute-On switch to Iris in VM mode
+  observeEvent(input$use_remote_refit_switch, ignoreInit = TRUE, {
+    if (is_vm_mode()) {
+      # If user tries to turn it OFF, snap it back to ON
+      if (!isTRUE(input$use_remote_refit_switch)) {
+        shinyWidgets::updateSwitchInput(
+          session,
+          "use_remote_refit_switch",
+          value = TRUE
+        )
+      }
+    }
+  })
 
 
 

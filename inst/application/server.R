@@ -1712,7 +1712,7 @@ function(input, output, session) {
         shinyjs::show("fitPanel")
 
         if (is_vm_mode()) {
-          # VM mode: switch locked ON, show options
+          # VM: always remote, keep toggle ON and visible, show options
           shinyWidgets::updateSwitchInput(
             session,
             "use_remote_refit_switch",
@@ -1725,7 +1725,7 @@ function(input, output, session) {
           shinyjs::show("remote_refit_options")
 
         } else {
-          # Legacy (non-VM)
+          # Legacy (non-VM): original logic, toggle visible
           use_remote <- isTRUE(session_data$session_remote_refit)
 
           shinyWidgets::updateSwitchInput(
@@ -1749,7 +1749,7 @@ function(input, output, session) {
 
     observeEvent(input$use_remote_refit_switch, {
       if (is_vm_mode()) {
-        # Force switch to stay ON in VM
+        # VM: force switch to stay ON and keep options visible
         if (!isTRUE(input$use_remote_refit_switch)) {
           shinyWidgets::updateSwitchInput(
             session,
@@ -1774,59 +1774,26 @@ function(input, output, session) {
       }
     })
 
-
-
-
-    observeEvent(input$use_remote_refit_switch, {
-      if (is_vm_mode()) {
-        # Force switch to stay ON
-        if (!isTRUE(input$use_remote_refit_switch)) {
-          shinyWidgets::updateSwitchInput(
-            session,
-            "use_remote_refit_switch",
-            value = TRUE
-          )
-        }
-
-        session_data$session_remote_refit <- TRUE
-        shinyjs::show("remote_refit_options")
-        return()
-      }
-
-      # Legacy (non-VM) behaviour
-      use_remote <- isTRUE(input$use_remote_refit_switch)
-      session_data$session_remote_refit <- use_remote
-
-      if (use_remote) {
-        shinyjs::show("remote_refit_options")
-      } else {
-        shinyjs::hide("remote_refit_options")
-      }
-    })
-
-
-
-
-
-
-    # Hide/show the remote/local storage box when necessary.
+    #Hide/show the remote/local storage box when necessary.
     observe({
-      # In VM mode, always hide storage type UI
+      # VM mode: always hide storage type UI
       if (is_vm_mode()) {
         shinyjs::hide("storageTypeDiv")
         shinyjs::hide("storageTypeDiv_compare")
         return()
       }
 
-      # Non-VM logic unchanged
+      # Non-VM logic
       if (!is.null(selected_sample_path)) {
         personal_path_for_selected <- get_personal_path(selected_sample_path)
 
         if ((is_remote_file(selected_sample_path) ||
              !is.null(get_remote_path_from_personal(personal_path_for_selected))) &&
             session_data$password_personal == 1) {
+
           shinyjs::show("storageTypeDiv")
           shinyjs::show("storageTypeDiv_compare")
+
           if (is_remote_file(selected_sample_path)) {
             shinyWidgets::updateSwitchInput(session, "storageType", value = TRUE)
             shinyWidgets::updateSwitchInput(session, "storageType_compare", value = TRUE)
@@ -1838,8 +1805,12 @@ function(input, output, session) {
           shinyjs::hide("storageTypeDiv")
           shinyjs::hide("storageTypeDiv_compare")
         }
+      } else {
+        shinyjs::hide("storageTypeDiv")
+        shinyjs::hide("storageTypeDiv_compare")
       }
     })
+
 
 
     #print("matchRow2")

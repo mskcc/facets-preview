@@ -1566,6 +1566,28 @@ function(input, output, session) {
 
 
 
+  # VM-only UI enforcement: lock refit to Iris and hide storage-type toggles
+  observe({
+    if (!is_vm_mode()) {
+      return()
+    }
+
+    # Force refit to use remote/Iris and keep it locked there
+    shinyWidgets::updateSwitchInput(
+      session,
+      "use_remote_refit_switch",
+      value = TRUE,
+      onLabel = "Iris",
+      offLabel = "Local"
+    )
+    session_data$session_remote_refit <- TRUE
+    shinyjs::show("remote_refit_options")
+    shinyjs::disable("use_remote_refit_switch")
+
+    # Hide review-fits storage-type toggles
+    shinyjs::hide("storageTypeDiv")
+    shinyjs::hide("storageTypeDiv_compare")
+  })
 
 
 
@@ -1749,57 +1771,7 @@ function(input, output, session) {
       }
     })
 
-    observeEvent(input$use_remote_refit_switch, {
-      # In VM mode the switch is disabled; ignore any changes
-      if (is_vm_mode()) return()
 
-      # Legacy (non-VM) behaviour
-      use_remote <- isTRUE(input$use_remote_refit_switch)
-      session_data$session_remote_refit <- use_remote
-
-      if (use_remote) {
-        shinyjs::show("remote_refit_options")
-      } else {
-        shinyjs::hide("remote_refit_options")
-      }
-    })
-
-    #Hide/show the remote/local storage box when necessary.
-    observe({
-      # In VM mode, always hide storage type UI
-      if (is_vm_mode()) {
-        shinyjs::hide("storageTypeDiv")
-        shinyjs::hide("storageTypeDiv_compare")
-        return()
-      }
-
-      # Non-VM logic
-      if (!is.null(selected_sample_path)) {
-        personal_path_for_selected <- get_personal_path(selected_sample_path)
-
-        if ((is_remote_file(selected_sample_path) ||
-             !is.null(get_remote_path_from_personal(personal_path_for_selected))) &&
-            session_data$password_personal == 1) {
-
-          shinyjs::show("storageTypeDiv")
-          shinyjs::show("storageTypeDiv_compare")
-
-          if (is_remote_file(selected_sample_path)) {
-            shinyWidgets::updateSwitchInput(session, "storageType", value = TRUE)
-            shinyWidgets::updateSwitchInput(session, "storageType_compare", value = TRUE)
-          } else {
-            shinyWidgets::updateSwitchInput(session, "storageType", value = FALSE)
-            shinyWidgets::updateSwitchInput(session, "storageType_compare", value = FALSE)
-          }
-        } else {
-          shinyjs::hide("storageTypeDiv")
-          shinyjs::hide("storageTypeDiv_compare")
-        }
-      } else {
-        shinyjs::hide("storageTypeDiv")
-        shinyjs::hide("storageTypeDiv_compare")
-      }
-    })
 
 
 

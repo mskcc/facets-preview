@@ -247,6 +247,7 @@ ui <-
 
                               # Personal Storage Location
                               div(
+                                id = "session_personal_storage_section",
                                 h5("Personal Storage Location", style = "font-weight: bold; color: black;"),
                                 div(
                                   style = "padding-left: 20px;",

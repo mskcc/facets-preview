@@ -493,6 +493,12 @@ function(input, output, session) {
     # no-op; keeps a spot if you later want reactivity
   })
 
+  observe({
+    if (is_vm_mode()) {
+      shinyjs::hide("session_personal_storage_section")
+    }
+  })
+
   # Hide repo/edit sections in VM; keep visible in local
   observeEvent(TRUE, {
     if (!is_vm_mode()) return()
@@ -1741,6 +1747,34 @@ function(input, output, session) {
       }
     })
 
+    observeEvent(input$use_remote_refit_switch, {
+      if (is_vm_mode()) {
+        # Force switch to stay ON in VM
+        if (!isTRUE(input$use_remote_refit_switch)) {
+          shinyWidgets::updateSwitchInput(
+            session,
+            "use_remote_refit_switch",
+            value = TRUE
+          )
+        }
+
+        session_data$session_remote_refit <- TRUE
+        shinyjs::show("remote_refit_options")
+        return()
+      }
+
+      # Legacy (non-VM) behaviour
+      use_remote <- isTRUE(input$use_remote_refit_switch)
+      session_data$session_remote_refit <- use_remote
+
+      if (use_remote) {
+        shinyjs::show("remote_refit_options")
+      } else {
+        shinyjs::hide("remote_refit_options")
+      }
+    })
+
+
 
 
     observeEvent(input$use_remote_refit_switch, {
@@ -1775,11 +1809,17 @@ function(input, output, session) {
 
 
 
-    #Hide/show the remote/local storage box when necessary.
+    # Hide/show the remote/local storage box when necessary.
     observe({
-      # Check if the selected_sample_path is valid and if it's a remote file
+      # In VM mode, always hide storage type UI
+      if (is_vm_mode()) {
+        shinyjs::hide("storageTypeDiv")
+        shinyjs::hide("storageTypeDiv_compare")
+        return()
+      }
+
+      # Non-VM logic unchanged
       if (!is.null(selected_sample_path)) {
-        # Compute the corresponding personal path for this sample
         personal_path_for_selected <- get_personal_path(selected_sample_path)
 
         if ((is_remote_file(selected_sample_path) ||
@@ -1799,8 +1839,8 @@ function(input, output, session) {
           shinyjs::hide("storageTypeDiv_compare")
         }
       }
-
     })
+
 
     #print("matchRow2")
 

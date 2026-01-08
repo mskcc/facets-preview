@@ -3888,7 +3888,7 @@ function(input, output, session) {
       return()
     }
 
-    # -------- RESTRICTED PATHS + PASSWORD (LOCAL ONLY) --------
+    # -------- RESTRICTED PATHS (LOCAL) --------
     restricted_hits <- character(0)
     if (!is_vm_mode()) {
       if (sw_use_mount_impact && nzchar(remote_path_impact) && is_restricted(remote_path_impact)) {
@@ -3903,43 +3903,39 @@ function(input, output, session) {
       if (sw_use_mount_refit && nzchar(remote_refit_path) && is_restricted(remote_refit_path)) {
         restricted_hits <- c(restricted_hits, "Refit remote")
       }
+    }
 
-      # Your original password behavior: only check if a password was provided AND any Use Mount is ON
-      if (nzchar(auth_password) && (sw_use_mount_impact || sw_use_mount_tempo || sw_use_mount_tcga)) {
-        hashed_password <- digest::digest(auth_password, algo = "sha256")
+    # -------- PASSWORD (LOCAL + VM) --------
+    if (nzchar(auth_password)) {
+      hashed_password <- digest::digest(auth_password, algo = "sha256")
 
-        session_data$auth_password     <- hashed_password
-        session_data$password_valid    <- if (identical(hashed_password, valid_hashed_password)) 1 else 0
-        session_data$password_personal <- if (identical(hashed_password, valid_personal_password)) 1 else 0
+      session_data$auth_password     <- hashed_password
+      session_data$password_valid    <- if (identical(hashed_password, valid_hashed_password)) 1 else 0
+      session_data$password_personal <- if (identical(hashed_password, valid_personal_password)) 1 else 0
 
-        if (session_data$password_valid == 1) {
-          showNotification("Authenticated for full access.", type = "message")
-        }
-        if (session_data$password_personal == 1) {
-          showNotification("Authenticated for personal refits.", type = "message")
-        }
-        if (session_data$password_valid != 1 && session_data$password_personal != 1) {
-          showNotification("Invalid password.", type = "error")
-        }
-      } else {
-        session_data$password_valid    <- 0
-        session_data$password_personal <- 0
+      if (session_data$password_valid == 1) {
+        showNotification("Authenticated for full access.", type = "message")
       }
-
-      # If there are restricted hits and the user is NOT authenticated, show a single error
-      if (length(restricted_hits) > 0 && session_data$password_valid != 1) {
-        showNotification(
-          paste0("Restricted path(s): ", paste(restricted_hits, collapse = ", "),
-                 ". Authenticate on the Session tab to enable access."),
-          type = "error", duration = 8
-        )
-        # We still allow saving the session file below; this just informs about restricted areas.
+      if (session_data$password_personal == 1) {
+        showNotification("Authenticated for personal refits.", type = "message")
+      }
+      if (session_data$password_valid != 1 && session_data$password_personal != 1) {
+        showNotification("Invalid password.", type = "error")
       }
     } else {
-      # VM: reset auth flags (no sshfs / restricted checks here for now)
       session_data$password_valid    <- 0
       session_data$password_personal <- 0
     }
+
+    # If there are restricted hits and the user is NOT authenticated, show a single error (local only info)
+    if (length(restricted_hits) > 0 && session_data$password_valid != 1) {
+      showNotification(
+        paste0("Restricted path(s): ", paste(restricted_hits, collapse = ", "),
+               ". Authenticate on the Session tab to enable access."),
+        type = "error", duration = 8
+      )
+    }
+
 
     # -------- persist reactive + write TSV session file --------
     session_data$personal_storage_path <- personal_storage_path

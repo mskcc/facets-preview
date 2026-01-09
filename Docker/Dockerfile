@@ -48,7 +48,7 @@ RUN R -q -e "install.packages('remotes', repos='https://cloud.r-project.org')" \
  && R -q -e "remotes::install_version('bslib', version='0.7.0', repos='https://cloud.r-project.org')"
 
 # Insert this dummy operation to invalidate the cache for subsequent steps
-ENV FORCE_REBUILD_FACETS=86
+ENV FORCE_REBUILD_FACETS=87
 
 # Install FACETS, pctGCdata and facets-suite
 RUN cd /tmp \

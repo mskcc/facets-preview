@@ -2974,14 +2974,22 @@ function(input, output, session) {
     review_status = input$radioButtons_reviewStatus
     fit_name = input$selectInput_selectBestFit[1]
 
-    if (isTRUE(values$is_vm_mode)) {
-      signed_as <- Sys.getenv("FP_USER_ID", unset = "")
-      if (!nzchar(signed_as)) signed_as <- "unknown"
+    signed_as <- ""
+    if (isTRUE(session_data$is_vm_mode)) {
+      signed_as <- Sys.getenv("FP_USER_ID", "")
+      showNotification("Applying review as user.", type = "error")
     } else {
       signed_as <- tryCatch(system("whoami", intern = TRUE), error = function(e) character(0))
       signed_as <- signed_as[nzchar(signed_as)]
-      signed_as <- if (length(signed_as) > 0) signed_as[[1]] else "unknown"
+      signed_as <- if (length(signed_as) > 0) signed_as[[1]] else ""
+      showNotification("Applying review as user in local mode.", type = "error")
     }
+
+    if (!nzchar(signed_as)) {
+      showNotification("Unable to determine signed_as (FP_USER_ID missing in VM mode, or whoami failed in local mode).", type = "error")
+      return(NULL)
+    }
+
 
     note = input$textAreaInput_reviewNote[1]
     use_only_purity_run = input$checkbox_purity_only[1]

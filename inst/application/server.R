@@ -2973,7 +2973,16 @@ function(input, output, session) {
 
     review_status = input$radioButtons_reviewStatus
     fit_name = input$selectInput_selectBestFit[1]
-    signed_as = system('whoami', intern=T)
+
+    if (isTRUE(values$is_vm_mode)) {
+      signed_as <- Sys.getenv("FP_USER_ID", unset = "")
+      if (!nzchar(signed_as)) signed_as <- "unknown"
+    } else {
+      signed_as <- tryCatch(system("whoami", intern = TRUE), error = function(e) character(0))
+      signed_as <- signed_as[nzchar(signed_as)]
+      signed_as <- if (length(signed_as) > 0) signed_as[[1]] else "unknown"
+    }
+
     note = input$textAreaInput_reviewNote[1]
     use_only_purity_run = input$checkbox_purity_only[1]
     use_edited_cncf = input$checkbox_use_edited_cncf[1]

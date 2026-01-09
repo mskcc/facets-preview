@@ -38,11 +38,17 @@ RUN apt-get install -y inotify-tools
 
 ENV FORCE_REBUILD_R=13
 
-RUN R -e "install.packages(c('Cairo','argparse','gridExtra', 'binom', 'BiocManager', 'diptest', 'egg','shinyWidgets', 'shinyjs', 'rhandsontable', 'doParallel', 'configr', 'R.utils', 'shinyFiles', 'here', 'dplyr', 'httr', 'jsonlite'), repos='http://cran.us.r-project.org')" \
-	&& R -e "BiocManager::install('rtracklayer')"
+#RUN R -e "install.packages(c('Cairo','argparse','gridExtra', 'binom', 'BiocManager', 'diptest', 'egg','shiny', 'shinyWidgets', 'shinyjs', 'rhandsontable', 'doParallel', 'configr', 'R.utils', 'shinyFiles', 'here', 'dplyr', 'httr', 'jsonlite'), repos='http://cran.us.r-project.org')" \
+#	&& R -e "BiocManager::install('rtracklayer')"
+
+RUN R -e "options(repos=c(CRAN='https://packagemanager.posit.co/cran/__linux__/bionic/2025-06-01')); install.packages(c('Cairo','argparse','gridExtra','binom','BiocManager','diptest','egg','shiny','shinyWidgets','shinyjs','rhandsontable','doParallel','configr','R.utils','shinyFiles','here','dplyr','httr','jsonlite'), Ncpus=parallel::detectCores())" \
+ && R -e "options(repos=c(CRAN='https://packagemanager.posit.co/cran/__linux__/bionic/2025-06-01')); BiocManager::install('rtracklayer', ask=FALSE, update=FALSE)"
+
+RUN R -q -e "install.packages('remotes', repos='https://cloud.r-project.org')" \
+ && R -q -e "remotes::install_version('bslib', version='0.7.0', repos='https://cloud.r-project.org')"
 
 # Insert this dummy operation to invalidate the cache for subsequent steps
-ENV FORCE_REBUILD_FACETS=84
+ENV FORCE_REBUILD_FACETS=86
 
 # Install FACETS, pctGCdata and facets-suite
 RUN cd /tmp \

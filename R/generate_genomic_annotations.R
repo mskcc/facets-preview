@@ -107,10 +107,16 @@ generate_genomic_annotations = function(sample_id, sample_path, config_file, reg
 
     # Write gene level // use hisensitivity run
     
+    # NOTE: pass `algorithm` by name. Standard facetsSuite is
+    # gene_level_changes(facets_output, genome, algorithm), but facets-suite-2n
+    # inserts targetFile as the 3rd positional arg
+    # (facets_output, genome, targetFile, algorithm). A positional 'em' would be
+    # read as targetFile there and crash; naming it works for both APIs, and 2n's
+    # targetFile then defaults to NULL -> the genome-wide gene list, matching standard.
     if (r$use_only_purity_run) {
-      gene_level = facetsSuite::gene_level_changes(purity_output, 'hg19', 'em')
+      gene_level = facetsSuite::gene_level_changes(purity_output, 'hg19', algorithm = 'em')
     } else {
-      gene_level = facetsSuite::gene_level_changes(hisens_output, 'hg19', 'em')
+      gene_level = facetsSuite::gene_level_changes(hisens_output, 'hg19', algorithm = 'em')
     }
     gene_level = gene_level %>% add_column(sample = sample_id, .before = 1)
     

@@ -361,6 +361,20 @@ ui <-
                           selectInput(inputId = "selectInput_selectSample", label = NULL,
                                       choices = c("Not selected"), selected = NA),
 
+                          # 2n only: a pair is two class subtrees (clinical/research)
+                          # shown as one sample. Hidden for standard samples.
+                          shinyjs::hidden(
+                            div(id = "div_fitClass",
+                                shinyWidgets::radioGroupButtons(
+                                  inputId = "radioGroupButton_fitClass",
+                                  label = NULL,
+                                  choices = c("Clinical", "Research"),
+                                  selected = "Research",
+                                  status = "info", size = "sm", width = "100%",
+                                  justified = TRUE)
+                            )
+                          ),
+
                           # Combine "Select Fit" heading and the trophy div on the same line
                           div(style = "display: flex; align-items: center;",
                               h4(strong("Select Fit:")),
@@ -429,6 +443,20 @@ ui <-
                             h4(strong("Select Sample:")),
                             selectInput(inputId = "selectInput_selectSample_compare", label = NULL,
                                         choices = c("Not selected"), selected = NA),
+
+                            # 2n only: class toggle for the compare pane (independent
+                            # of the main pane, so the two classes can be compared).
+                            shinyjs::hidden(
+                              div(id = "div_fitClass_compare",
+                                  shinyWidgets::radioGroupButtons(
+                                    inputId = "radioGroupButton_fitClass_compare",
+                                    label = NULL,
+                                    choices = c("Clinical", "Research"),
+                                    selected = "Research",
+                                    status = "info", size = "sm", width = "100%",
+                                    justified = TRUE)
+                              )
+                            ),
 
                             # Combine "Select Fit" heading and the trophy div on the same line
                             div(style = "display: flex; align-items: center;",
@@ -660,6 +688,10 @@ ui <-
                                      fluidRow(
                                        column(12,
                                               mainPanel(
+                                                # Explains an intentionally empty table
+                                                # (e.g. ultra runs carry no gene/arm files).
+                                                div(textOutput("geneLevel_note"),
+                                                    style = "color: #de2e07; font-style: italic; padding-bottom: 6px;"),
                                                 DT::dataTableOutput("datatable_geneLevel"),
                                                 width = 12
                                               )
@@ -729,6 +761,10 @@ ui <-
                                      fluidRow(
                                        column(12,
                                               mainPanel(
+                                                # Explains an intentionally empty table
+                                                # (e.g. ultra runs carry no gene/arm files).
+                                                div(textOutput("armLevel_note"),
+                                                    style = "color: #de2e07; font-style: italic; padding-bottom: 6px;"),
                                                 DT::dataTableOutput("datatable_armLevel"),
                                                 width = 12
                                               )

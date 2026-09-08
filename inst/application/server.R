@@ -172,7 +172,12 @@ fp_personal_dir <- function() {
 
 server <-
 function(input, output, session) {
-  values <- reactiveValues(manifest_metadata = NULL, samples_ready = FALSE, samples_loading = FALSE, dt_sel = NULL, config_file = ifelse( exists("facets_preview_config_file"), facets_preview_config_file, "<not set>"))
+  values <- reactiveValues(manifest_metadata = NULL, samples_ready = FALSE, samples_loading = FALSE, dt_sel = NULL, config_file = ifelse( exists("facets_preview_config_file"), facets_preview_config_file, "<not set>"),
+                           is_2n = FALSE, is_2n_compare = FALSE,
+                           fit_class = NA_character_, fit_class_compare = NA_character_,
+                           pair_paths = NULL, pair_paths_compare = NULL,
+                           pair_index_2n = NULL,
+                           geneLevel_note = "", armLevel_note = "")
   output$verbatimTextOutput_sessionInfo <- renderPrint({print(sessionInfo())})
   output$verbatimTextOutput_signAs <- renderText({paste0(system('whoami', intern = T))})
 
@@ -180,6 +185,15 @@ function(input, output, session) {
   ignore_storage_change_compare <- reactiveVal(FALSE)
   selected_counts_file <- reactiveVal(NULL)
   skipSampleChange <- reactiveVal(FALSE)
+
+  # --- 2n (facets2n) per-pane state -------------------------------------------
+  # A 2n pair is two standard-shaped class subtrees (<pair>/clinical and
+  # <pair>/research) presented as ONE sample; each pane tracks which class it is
+  # showing so the two can be swapped and compared independently. Every 2n
+  # behavior below is gated on these flags, so a standard sample's flow is
+  # unchanged.
+  ignore_class_change <- reactiveVal(FALSE)
+  ignore_class_change_compare <- reactiveVal(FALSE)
 
   vm_prefilled <- reactiveVal(FALSE)
 
@@ -419,6 +433,99 @@ function(input, output, session) {
   #' @param selected_sample_path facets run directory containing 'facets_review.manifest'
   #' @return nothing
   #' @export refresh_review_status
+  # --- 2n helpers -------------------------------------------------------------
+  # Full authorization: the in-app full-access password. This is the ONLY gate on
+  # the Ultra run type (FP_ACCESS_LEVEL is not consulted).
+  authorized_full <- function() isTRUE(session_data$password_valid == 1)
+
+  # Single entry point for loading a sample's runs into a pane. Standard samples
+  # take exactly the path they always did (metadata_init with the same
+  # update_qc_file the caller passed); 2n samples route to metadata_init_2n and
+  # populate the pane's class state.
+  load_runs_for_pane <- function(pane, sample_id, sample_path, progress = NULL,
+                                 update_qc_file = TRUE) {
+    id <- sample_identity_2n(sample_path)
+
+    runs <- if (isTRUE(id$is_2n)) {
+      metadata_init_2n(sample_id, sample_path, progress, update_qc_file)
+    } else {
+      metadata_init(sample_id, sample_path, progress, update_qc_file)
+    }
+
+    pair_paths <- if (isTRUE(id$is_2n) && !is.na(id$class)) {
+      list(clinical = id$path_clinical, research = id$path_research)
+    } else NULL
+
+    if (identical(pane, "compare")) {
+      values$is_2n_compare         <- isTRUE(id$is_2n)
+      values$fit_class_compare     <- id$class
+      values$pair_paths_compare    <- pair_paths
+    } else {
+      values$is_2n                 <- isTRUE(id$is_2n)
+      values$fit_class             <- id$class
+      values$pair_paths            <- pair_paths
+    }
+
+    runs
+  }
+
+  # Fit choices for a pane's dropdowns. Rule 15: ultra fits are view-only and are
+  # never selectable, so they never appear in a fit or best-fit dropdown. On a
+  # standard sample there are no ultra rows, so this is the identity.
+  fit_choices_for_pane <- function(runs, is_2n = TRUE) {
+    if (is.null(runs) || nrow(runs) == 0) return(character(0))
+    strip_ultra_fits_2n(unlist(runs$fit_name))
+  }
+
+  # Keep the Purity/Hisens(/Ultra) selector's choices in step with the pane's 2n
+  # status, authorization and selected fit. Returns without touching the widget
+  # for a standard sample, so its choices stay exactly as the UI declared them.
+  sync_fit_type_choices <- function(pane = "main") {
+    is_cmp <- identical(pane, "compare")
+    is_2n  <- if (is_cmp) values$is_2n_compare else values$is_2n
+    if (!isTRUE(is_2n)) return(invisible(NULL))
+
+    runs <- if (is_cmp) values$sample_runs_compare else values$sample_runs
+    fit  <- if (is_cmp) input$selectInput_selectFit_compare else input$selectInput_selectFit
+    if (is.null(fit) || fit == "Not selected") return(invisible(NULL))
+
+    inp <- if (is_cmp) "radioGroupButton_fitType_compare" else "radioGroupButton_fitType"
+    ch  <- fit_type_choices_2n(is_2n, authorized_full(), runs, fit)
+    cur <- if (is_cmp) input$radioGroupButton_fitType_compare else input$radioGroupButton_fitType
+    sel <- if (!is.null(cur) && cur %in% ch) cur else "Purity"
+
+    shinyWidgets::updateRadioGroupButtons(session, inp, choices = ch, selected = sel)
+    invisible(NULL)
+  }
+
+  # Show/hide the Clinical/Research toggle for a pane and point it at the pane's
+  # current class. Standard panes only get the hide.
+  finalize_pane_2n <- function(pane = "main") {
+    is_cmp <- identical(pane, "compare")
+    is_2n  <- if (is_cmp) values$is_2n_compare else values$is_2n
+    div_id <- if (is_cmp) "div_fitClass_compare" else "div_fitClass"
+    inp_id <- if (is_cmp) "radioGroupButton_fitClass_compare" else "radioGroupButton_fitClass"
+
+    pp  <- if (is_cmp) values$pair_paths_compare else values$pair_paths
+    cls <- if (is_cmp) values$fit_class_compare else values$fit_class
+
+    if (!isTRUE(is_2n) || is.null(pp) || is.na(cls)) {
+      shinyjs::hide(div_id)
+      return(invisible(NULL))
+    }
+
+    # Only offer classes that actually exist on disk.
+    present <- fit_classes_2n()[!is.na(unlist(pp[fit_classes_2n()]))]
+    choices <- setNames(present, tools::toTitleCase(present))
+
+    if (is_cmp) ignore_class_change_compare(TRUE) else ignore_class_change(TRUE)
+    shinyWidgets::updateRadioGroupButtons(session, inp_id,
+                                          choices = as.character(names(choices)),
+                                          selected = tools::toTitleCase(cls))
+    shinyjs::show(div_id)
+    invisible(NULL)
+  }
+
   refresh_review_status <- function(selected_sample, selected_sample_path, facets_runs) {
     review_df <- get_review_status(selected_sample, selected_sample_path)
     if ( dim(review_df)[1] > 0) {
@@ -631,7 +738,14 @@ function(input, output, session) {
       manifest_file <- file.path(impact_root, mf)
     }
 
-    values$manifest_metadata <- load_repo_samples(tumor_ids, manifest_file, progress)
+    # A 2n cohort manifest carries one row per (pair, class) sharing a tag, which
+    # would give two manifest rows with the same sample_id -- and every
+    # path[sample_id %in% input] lookup would paste the two class paths together.
+    # Collapse each pair to its default class (research); the sibling path is kept
+    # in the side index the class toggle reads. No-op on a standard manifest.
+    repo_meta <- collapse_manifest_2n(load_repo_samples(tumor_ids, manifest_file, progress))
+    values$manifest_metadata <- repo_meta$metadata
+    values$pair_index_2n     <- repo_meta$pair_index
 
     num_samples_queried = length(tumor_ids)
     num_samples_found = nrow(values$manifest_metadata)
@@ -744,8 +858,24 @@ function(input, output, session) {
     #print("button_samplesInput-6")
 
 
-    # Call the function to load the samples
-    manifest_metadata <- load_samples(manifest, progress)
+    # Call the function to load the samples.
+    # 2n class subtrees are loaded by load_samples_2n, which keys them by the PAIR
+    # tag and collapses each pair to one row -- load_samples() would name them
+    # after their own dir ("clinical"/"research") and self-heal a missing manifest
+    # through the standard ruleset. Standard paths keep the original loader
+    # untouched. (load_samples() loops 1:length(manifest) and errors on an empty
+    # vector, hence the guards.)
+    is_2n_path <- vapply(manifest, function(p) isTRUE(is_facets2n_sample(p)), logical(1))
+    manifest_metadata <- data.frame()
+    if (any(!is_2n_path)) {
+      manifest_metadata <- load_samples(manifest[!is_2n_path], progress)
+    }
+    if (any(is_2n_path)) {
+      meta_2n <- load_samples_2n(manifest[is_2n_path], progress)
+      manifest_metadata <- if (nrow(manifest_metadata) == 0) meta_2n
+                           else rbind(manifest_metadata, meta_2n)
+    }
+    values$pair_index_2n <- pair_index_2n(manifest[is_2n_path])
     #print("button_samplesInput-6.5")
     values$manifest_metadata <- manifest_metadata
 
@@ -1624,8 +1754,12 @@ function(input, output, session) {
       on.exit(progress$close(), add = TRUE)
       progress$set(message = "Loading data", value = 1)
 
-      values$sample_runs         <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
+      values$sample_runs <- load_runs_for_pane("main", selected_sample, selected_sample_path, progress, FALSE)
       values$sample_runs_compare <- values$sample_runs
+      # The compare pane starts on the same sample/class, so mirror its 2n state.
+      values$is_2n_compare      <- values$is_2n
+      values$fit_class_compare  <- values$fit_class
+      values$pair_paths_compare <- values$pair_paths
 
       if (is.null(values$sample_runs) || nrow(values$sample_runs) == 0) {
         showModal(modalDialog(
@@ -1660,7 +1794,8 @@ function(input, output, session) {
       )
 
       # Fit choices from the loaded runs
-      fit_names   <- unique(values$sample_runs$fit_name)
+      # Rule 15: ultra fits are view-only and never appear in a fit dropdown.
+      fit_names   <- unique(fit_choices_for_pane(values$sample_runs))
       fit_choices <- as.list(c("Not selected", fit_names))
       default_sel <- if ("default" %in% fit_names) "default" else "Not selected"
 
@@ -1685,6 +1820,9 @@ function(input, output, session) {
       # Default to REMOTE in VM
       shinyWidgets::updateSwitchInput(session, "storageType", value = TRUE)
       shinyWidgets::updateSwitchInput(session, "storageType_compare", value = TRUE)
+
+      finalize_pane_2n("main")
+      finalize_pane_2n("compare")
 
       skipSampleChange(FALSE)
 
@@ -1726,12 +1864,12 @@ function(input, output, session) {
             showNotification("You are not authorized to perform refits or reviews for this sample. Authenticate on the session tab to unlock.", type = "error")
           }
         }
-        values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
-        values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
+        values$sample_runs <- load_runs_for_pane("main", selected_sample, selected_sample_path, progress, FALSE)
+        values$sample_runs_compare <- load_runs_for_pane("compare", selected_sample, selected_sample_path, progress, FALSE)
       } else {
         showNotification("You are authorized to make changes to this sample.", type = "message")
-        values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress)
-        values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress)
+        values$sample_runs <- load_runs_for_pane("main", selected_sample, selected_sample_path, progress)
+        values$sample_runs_compare <- load_runs_for_pane("compare", selected_sample, selected_sample_path, progress)
       }
     }
 
@@ -1804,12 +1942,12 @@ function(input, output, session) {
           showNotification("You are not authorized to perform refits or reviews for this sample. Authenticate on the session tab to unlock.", type = "error")
         }
       }
-      values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
-      values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
+      values$sample_runs <- load_runs_for_pane("main", selected_sample, selected_sample_path, progress, FALSE)
+      values$sample_runs_compare <- load_runs_for_pane("compare", selected_sample, selected_sample_path, progress, FALSE)
     } else {
       showNotification("You are authorized to make changes to this sample.", type = "message")
-      values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress)
-      values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress)
+      values$sample_runs <- load_runs_for_pane("main", selected_sample, selected_sample_path, progress)
+      values$sample_runs_compare <- load_runs_for_pane("compare", selected_sample, selected_sample_path, progress)
     }
 
     #print("matchRow3")
@@ -1837,13 +1975,13 @@ function(input, output, session) {
 
     ## bind to drop-down
     updateSelectInput(session, "selectInput_selectFit",
-                      choices = as.list(c("Not selected", unlist(values$sample_runs$fit_name))),
+                      choices = as.list(c("Not selected", fit_choices_for_pane(values$sample_runs))),
                       selected = ifelse (input$selectInput_selectFit == 'Not selected' & values$show_fit != 'Not selected',
                                          values$show_fit, 'Not selected')
     )
 
     updateSelectInput(session, "selectInput_selectFit_compare",
-                      choices = as.list(c("Not selected", unlist(values$sample_runs_compare$fit_name))),
+                      choices = as.list(c("Not selected", fit_choices_for_pane(values$sample_runs_compare))),
                       selected = ifelse (input$selectInput_selectFit_compare == 'Not selected' & values$show_fit_compare != 'Not selected',
                                          values$show_fit_compare, 'Not selected')
     )
@@ -1868,7 +2006,7 @@ function(input, output, session) {
     )
 
     updateSelectInput(session, "selectInput_selectBestFit",
-                      choices = as.list(c("Not selected", unlist(values$sample_runs$fit_name))),
+                      choices = as.list(c("Not selected", fit_choices_for_pane(values$sample_runs))),
                       selected = "Not selected"
     )
 
@@ -1887,6 +2025,8 @@ function(input, output, session) {
                         choices = as.list(values$config$facets_lib$version),
                         selected = selected_run$purity_run_version)
     }
+
+    finalize_pane_2n("main")
 
     shinyjs::delay(2500, {  # Adding some delay here because if we turn this off too soon the sample input field is still updating and it will double-load data.
       skipSampleChange(FALSE)
@@ -1920,18 +2060,94 @@ function(input, output, session) {
     }
   })
 
+  # --- 2n class toggles -------------------------------------------------------
+  # Swap the pane between a 2n pair's clinical and research subtrees. Both are
+  # standard-shaped sample dirs, so the swap just reloads the pane through the
+  # existing sample-change path with an explicit path.
+  swap_fit_class <- function(pane, chosen) {
+    is_cmp <- identical(pane, "compare")
+
+    if (is_cmp) {
+      if (ignore_class_change_compare()) { ignore_class_change_compare(FALSE); return(invisible(NULL)) }
+    } else {
+      if (ignore_class_change()) { ignore_class_change(FALSE); return(invisible(NULL)) }
+    }
+
+    is_2n <- if (is_cmp) values$is_2n_compare else values$is_2n
+    if (!isTRUE(is_2n)) return(invisible(NULL))
+
+    pp  <- if (is_cmp) values$pair_paths_compare else values$pair_paths
+    cur <- if (is_cmp) values$fit_class_compare else values$fit_class
+    if (is.null(pp) || is.null(chosen)) return(invisible(NULL))
+
+    target_class <- tolower(chosen)
+    if (identical(target_class, cur)) return(invisible(NULL))
+
+    target <- pp[[target_class]]
+    if (is.null(target) || is.na(target) || !dir.exists(target)) {
+      showNotification(paste0("No ", target_class, " data for this sample."),
+                       type = "error", duration = 5)
+      # Snap the toggle back to the class actually loaded.
+      if (is_cmp) ignore_class_change_compare(TRUE) else ignore_class_change(TRUE)
+      shinyWidgets::updateRadioGroupButtons(
+        session,
+        if (is_cmp) "radioGroupButton_fitClass_compare" else "radioGroupButton_fitClass",
+        selected = tools::toTitleCase(cur))
+      return(invisible(NULL))
+    }
+
+    # Remember the fit being viewed so the same one can be re-selected in the
+    # sibling class when it exists there (a class-specific refit may not).
+    keep_fit <- if (is_cmp) input$selectInput_selectFit_compare else input$selectInput_selectFit
+
+    if (is_cmp) handleSampleChange_compare(sample_path_override = target)
+    else        handleSampleChange(sample_path_override = target)
+
+    runs <- if (is_cmp) values$sample_runs_compare else values$sample_runs
+    if (!is.null(keep_fit) && keep_fit != "Not selected" &&
+        keep_fit %in% fit_choices_for_pane(runs)) {
+      updateSelectInput(session,
+                        if (is_cmp) "selectInput_selectFit_compare" else "selectInput_selectFit",
+                        selected = keep_fit)
+    }
+
+    finalize_pane_2n(pane)
+    invisible(NULL)
+  }
+
+  observeEvent(input$radioGroupButton_fitClass, {
+    swap_fit_class("main", input$radioGroupButton_fitClass)
+  }, ignoreInit = TRUE)
+
+  observeEvent(input$radioGroupButton_fitClass_compare, {
+    swap_fit_class("compare", input$radioGroupButton_fitClass_compare)
+  }, ignoreInit = TRUE)
+
+  # Authorization can be gained (or lost) after a sample is already loaded, so
+  # re-evaluate whether Ultra belongs in the run-type selector.
+  observeEvent(session_data$password_valid, {
+    sync_fit_type_choices("main")
+    sync_fit_type_choices("compare")
+  }, ignoreInit = TRUE)
 
 
-  handleSampleChange <- function() {
+
+  handleSampleChange <- function(sample_path_override = NULL) {
     # Figure out the selected sample + path from the manifest table
     selected_sample <- paste(
       unlist(values$manifest_metadata$sample_id[values$manifest_metadata$sample_id %in% input$selectInput_selectSample]),
       collapse = ""
     )
-    selected_sample_path <- paste(
-      unlist(values$manifest_metadata$path[values$manifest_metadata$sample_id %in% input$selectInput_selectSample]),
-      collapse = ""
-    )
+    # The override is how the 2n class toggle reloads the pane from the sibling
+    # subtree; with the default NULL this is the original lookup, unchanged.
+    selected_sample_path <- if (!is.null(sample_path_override)) {
+      sample_path_override
+    } else {
+      paste(
+        unlist(values$manifest_metadata$path[values$manifest_metadata$sample_id %in% input$selectInput_selectSample]),
+        collapse = ""
+      )
+    }
 
     # Always (re)load runs for the newly selected sample
     progress <- shiny::Progress$new(); on.exit(progress$close(), add = TRUE)
@@ -1939,7 +2155,7 @@ function(input, output, session) {
 
     if (identical(Sys.getenv("FP_MODE", ""), "vm")) {
       # VM: load directly, no mount/mapping
-      values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
+      values$sample_runs <- load_runs_for_pane("main", selected_sample, selected_sample_path, progress, FALSE)
     } else {
       # Local: preserve mount/mapping behavior
       mount_df <- get_mount_info()
@@ -1951,9 +2167,9 @@ function(input, output, session) {
       matched_row <- mount_df[hit_idx, , drop = FALSE]
 
       if (nrow(matched_row) > 0) {
-        values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
+        values$sample_runs <- load_runs_for_pane("main", selected_sample, selected_sample_path, progress, FALSE)
       } else {
-        values$sample_runs <- metadata_init(selected_sample, selected_sample_path, progress)
+        values$sample_runs <- load_runs_for_pane("main", selected_sample, selected_sample_path, progress)
       }
     }
 
@@ -1988,14 +2204,14 @@ function(input, output, session) {
 
     updateSelectInput(
       session, "selectInput_selectFit",
-      choices  = as.list(c("Not selected", unlist(values$sample_runs$fit_name))),
+      choices  = as.list(c("Not selected", fit_choices_for_pane(values$sample_runs))),
       selected = ifelse(input$selectInput_selectFit == "Not selected" && values$show_fit != "Not selected",
                         values$show_fit, "Not selected")
     )
 
     updateSelectInput(
       session, "selectInput_selectBestFit",
-      choices  = as.list(c("Not selected", unlist(values$sample_runs$fit_name))),
+      choices  = as.list(c("Not selected", fit_choices_for_pane(values$sample_runs))),
       selected = "Not selected"
     )
 
@@ -2021,6 +2237,8 @@ function(input, output, session) {
     # Minimal show/hide logic untouched (same as your current observer’s intent)
     # – we’re leaving your existing show/hide observers as-is
 
+    finalize_pane_2n("main")
+
     set_default_countFile()
   }
 
@@ -2035,22 +2253,26 @@ function(input, output, session) {
 
 
 
-  handleSampleChange_compare <- function() {
+  handleSampleChange_compare <- function(sample_path_override = NULL) {
     selected_sample <- paste(
       unlist(values$manifest_metadata$sample_id[values$manifest_metadata$sample_id %in% input$selectInput_selectSample_compare]),
       collapse = ""
     )
-    selected_sample_path <- paste(
-      unlist(values$manifest_metadata$path[values$manifest_metadata$sample_id %in% input$selectInput_selectSample_compare]),
-      collapse = ""
-    )
+    selected_sample_path <- if (!is.null(sample_path_override)) {
+      sample_path_override
+    } else {
+      paste(
+        unlist(values$manifest_metadata$path[values$manifest_metadata$sample_id %in% input$selectInput_selectSample_compare]),
+        collapse = ""
+      )
+    }
 
     # Always (re)load runs for the compare sample
     progress <- shiny::Progress$new(); on.exit(progress$close(), add = TRUE)
     progress$set(message = "Loading FACETS runs for the selected sample:", value = 0)
 
     if (identical(Sys.getenv("FP_MODE", ""), "vm")) {
-      values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
+      values$sample_runs_compare <- load_runs_for_pane("compare", selected_sample, selected_sample_path, progress, FALSE)
     } else {
       mount_df <- get_mount_info()
 
@@ -2060,9 +2282,9 @@ function(input, output, session) {
       matched_row <- mount_df[hit_idx, , drop = FALSE]
 
       if (nrow(matched_row) > 0) {
-        values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress, FALSE)
+        values$sample_runs_compare <- load_runs_for_pane("compare", selected_sample, selected_sample_path, progress, FALSE)
       } else {
-        values$sample_runs_compare <- metadata_init(selected_sample, selected_sample_path, progress)
+        values$sample_runs_compare <- load_runs_for_pane("compare", selected_sample, selected_sample_path, progress)
       }
     }
 
@@ -2102,7 +2324,7 @@ function(input, output, session) {
 
     updateSelectInput(
       session, "selectInput_selectFit_compare",
-      choices  = as.list(c("Not selected", unlist(values$sample_runs_compare$fit_name))),
+      choices  = as.list(c("Not selected", fit_choices_for_pane(values$sample_runs_compare))),
       selected = ifelse(
         input$selectInput_selectFit_compare == "Not selected" && values$show_fit_compare != "Not selected",
         values$show_fit_compare,
@@ -2112,12 +2334,14 @@ function(input, output, session) {
 
     updateSelectInput(
       session, "selectInput_selectBestFit_compare",
-      choices  = as.list(c("Not selected", unlist(values$sample_runs_compare$fit_name))),
+      choices  = as.list(c("Not selected", fit_choices_for_pane(values$sample_runs_compare))),
       selected = "Not selected"
     )
 
     output$verbatimTextOutput_runParams_compare <- renderText({})
     output$imageOutput_pngImage2 <- renderImage({ list(src = "", width = 0, height = 0) }, deleteFile = FALSE)
+
+    finalize_pane_2n("compare")
   }
 
 
@@ -2130,7 +2354,7 @@ function(input, output, session) {
     if ( input$selectInput_selectFit == 'Not selected') {
       if (!is.null(values$show_fit) && values$show_fit != '') {
         updateSelectInput(session, "selectInput_selectFit",
-                          choices = as.list(c("Not selected", unlist(values$sample_runs$fit_name))),
+                          choices = as.list(c("Not selected", fit_choices_for_pane(values$sample_runs))),
                           selected = values$show_fit
         )
         values$show_fit = ''
@@ -2176,7 +2400,7 @@ function(input, output, session) {
                       selection=list(mode='single'),
                       options = list(columnDefs = list(list(className = 'dt-center', targets=0:2)),
                                      pageLength = 50, dom = 't', rownames= FALSE),
-                      colnames = c("Filter" , selected_run$tumor_sample_id, selected_run_compare$tumor_sample_id, "Flag Description"),
+                      colnames = c("Filter" , pane_label_2n(selected_run, values$is_2n, values$fit_class), pane_label_2n(selected_run_compare, values$is_2n_compare, values$fit_class_compare), "Flag Description"),
                       escape=F)
       })
 
@@ -2245,7 +2469,19 @@ function(input, output, session) {
     ## selected run on the first selection
     values$show_fit_type = ifelse(!is.na(selected_run$purity_run_version[1]), 'Purity', 'Hisens')
 
-    if (is.null(input$radioGroupButton_fitType) || input$radioGroupButton_fitType == 'Hisens') {
+    # 2n only: offer Ultra when this fit has an ultra sibling and the user is
+    # fully authorized. Passing `choices` here (rather than in a separate update)
+    # keeps the single round-trip the hack above depends on; the flip below still
+    # lands on Purity/Hisens, both of which are always present, so the snap-back
+    # in the fitType observer fires exactly as it does for a standard sample.
+    if (isTRUE(values$is_2n)) {
+      shinyWidgets::updateRadioGroupButtons(
+        session, "radioGroupButton_fitType",
+        choices = fit_type_choices_2n(values$is_2n, authorized_full(),
+                                      values$sample_runs, input$selectInput_selectFit),
+        selected = if (is.null(input$radioGroupButton_fitType) ||
+                       input$radioGroupButton_fitType == 'Hisens') "Purity" else "Hisens")
+    } else if (is.null(input$radioGroupButton_fitType) || input$radioGroupButton_fitType == 'Hisens') {
       shinyWidgets::updateRadioGroupButtons(session, "radioGroupButton_fitType", selected="Purity")
     } else {
       shinyWidgets::updateRadioGroupButtons(session, "radioGroupButton_fitType", selected="Hisens")
@@ -2261,7 +2497,7 @@ function(input, output, session) {
     if ( input$selectInput_selectFit_compare == 'Not selected') {
       if (!is.null(values$show_fit_compare) && values$show_fit_compare != '') {
         updateSelectInput(session, "selectInput_selectFit_compare",
-                          choices = as.list(c("Not selected", unlist(values$sample_runs_compare$fit_name))),
+                          choices = as.list(c("Not selected", fit_choices_for_pane(values$sample_runs_compare))),
                           selected = values$show_fit_compare
         )
         values$show_fit_compare = ''
@@ -2303,7 +2539,7 @@ function(input, output, session) {
                       selection=list(mode='single'),
                       options = list(columnDefs = list(list(className = 'dt-center', targets=0:2)),
                                      pageLength = 50, dom = 't', rownames= FALSE),
-                      colnames = c("Filter" , selected_run_base$tumor_sample_id, selected_run$tumor_sample_id, "Flag Description"),
+                      colnames = c("Filter" , pane_label_2n(selected_run_base, values$is_2n, values$fit_class), pane_label_2n(selected_run, values$is_2n_compare, values$fit_class_compare), "Flag Description"),
                       escape=F)
       })
 
@@ -2331,7 +2567,16 @@ function(input, output, session) {
     ## selected run on the first selection
     values$show_fit_type_compare = ifelse(!is.na(selected_run$purity_run_version[1]), 'Purity', 'Hisens')
 
-    if (is.null(input$radioGroupButton_fitType_compare) || input$radioGroupButton_fitType_compare == 'Hisens') {
+    # 2n only: same Ultra treatment as the main pane (see above).
+    if (isTRUE(values$is_2n_compare)) {
+      shinyWidgets::updateRadioGroupButtons(
+        session, "radioGroupButton_fitType_compare",
+        choices = fit_type_choices_2n(values$is_2n_compare, authorized_full(),
+                                      values$sample_runs_compare,
+                                      input$selectInput_selectFit_compare),
+        selected = if (is.null(input$radioGroupButton_fitType_compare) ||
+                       input$radioGroupButton_fitType_compare == 'Hisens') "Purity" else "Hisens")
+    } else if (is.null(input$radioGroupButton_fitType_compare) || input$radioGroupButton_fitType_compare == 'Hisens') {
       shinyWidgets::updateRadioGroupButtons(session, "radioGroupButton_fitType_compare", selected="Purity")
     } else {
       shinyWidgets::updateRadioGroupButtons(session, "radioGroupButton_fitType_compare", selected="Hisens")
@@ -2418,19 +2663,37 @@ function(input, output, session) {
     }
   })
 
+  # Explains an intentionally empty gene/arm table (e.g. an ultra run, which
+  # carries no per-fit annotation files). Empty string renders as nothing.
+  output$geneLevel_note <- renderText({ values$geneLevel_note %||% "" })
+  output$armLevel_note  <- renderText({ values$armLevel_note  %||% "" })
+
   processed_armLevel_data <- reactive({
-    selected_run <- values$sample_runs[which(values$sample_runs$fit_name == paste0(input$selectInput_selectFit)),]
-    selected_run_compare <- values$sample_runs_compare[which(values$sample_runs_compare$fit_name == paste0(input$selectInput_selectFit_compare)),]
+    # Resolve per pane: 'Ultra' views the nested <fit>/ultra run, which produces
+    # no arm-level file -- the note below explains the empty table instead of
+    # leaving the tab silently blank. Standard panes are unaffected.
+    view1 <- resolve_view_run_2n(values$sample_runs, input$selectInput_selectFit,
+                                 input$radioGroupButton_fitType)
+    view2 <- resolve_view_run_2n(values$sample_runs_compare, input$selectInput_selectFit_compare,
+                                 input$radioGroupButton_fitType_compare)
+    selected_run          <- view1$run
+    selected_run_compare  <- view2$run
 
     req(input$radioGroupButton_fitType, selected_run)
 
+    values$armLevel_note <- ""
+
     armLevel_data1 <- tryCatch({
-      get_armLevel_table(input$radioGroupButton_fitType, selected_run)
+      if (isTRUE(values$is_2n)) get_armLevel_table_2n(view1$type, selected_run)
+      else                      get_armLevel_table(view1$type, selected_run)
     }, error = function(e) {
       return(NULL)
     })
 
     if (is.null(armLevel_data1) || nrow(armLevel_data1) == 0) {
+      if (isTRUE(view1$is_ultra)) {
+        values$armLevel_note <- "Arm-level calls are not produced for ultra runs."
+      }
       return(NULL)
     }
 
@@ -2440,7 +2703,8 @@ function(input, output, session) {
 
     armLevel_data2 <- if (!is.null(input$radioGroupButton_fitType_compare) && !is.null(selected_run_compare)) {
       tryCatch({
-        get_armLevel_table(input$radioGroupButton_fitType_compare, selected_run_compare)
+        if (isTRUE(values$is_2n_compare)) get_armLevel_table_2n(view2$type, selected_run_compare)
+        else                              get_armLevel_table(view2$type, selected_run_compare)
       }, error = function(e) {
         NULL
       })
@@ -2530,18 +2794,29 @@ function(input, output, session) {
   })
 
   processed_geneLevel_data <- reactive({
-    selected_run <- values$sample_runs[which(values$sample_runs$fit_name == paste0(input$selectInput_selectFit)),]
-    selected_run_compare <- values$sample_runs_compare[which(values$sample_runs_compare$fit_name == paste0(input$selectInput_selectFit_compare)),]
+    # See processed_armLevel_data: 'Ultra' has no gene-level file either.
+    view1 <- resolve_view_run_2n(values$sample_runs, input$selectInput_selectFit,
+                                 input$radioGroupButton_fitType)
+    view2 <- resolve_view_run_2n(values$sample_runs_compare, input$selectInput_selectFit_compare,
+                                 input$radioGroupButton_fitType_compare)
+    selected_run          <- view1$run
+    selected_run_compare  <- view2$run
 
     req(input$radioGroupButton_fitType, selected_run)
 
+    values$geneLevel_note <- ""
+
     geneLevel_data1 <- tryCatch({
-      get_geneLevel_table(input$radioGroupButton_fitType, selected_run)
+      if (isTRUE(values$is_2n)) get_geneLevel_table_2n(view1$type, selected_run)
+      else                      get_geneLevel_table(view1$type, selected_run)
     }, error = function(e) {
       return(NULL)
     })
 
     if (is.null(geneLevel_data1) || nrow(geneLevel_data1) == 0) {
+      if (isTRUE(view1$is_ultra)) {
+        values$geneLevel_note <- "Gene-level calls are not produced for ultra runs."
+      }
       return(NULL)
     }
 
@@ -2551,7 +2826,8 @@ function(input, output, session) {
 
     geneLevel_data2 <- if (!is.null(input$radioGroupButton_fitType_compare) && !is.null(selected_run_compare)) {
       tryCatch({
-        get_geneLevel_table(input$radioGroupButton_fitType_compare, selected_run_compare)
+        if (isTRUE(values$is_2n_compare)) get_geneLevel_table_2n(view2$type, selected_run_compare)
+        else                              get_geneLevel_table(view2$type, selected_run_compare)
       }, error = function(e) {
         NULL
       })
@@ -2616,8 +2892,16 @@ function(input, output, session) {
 
 
   observeEvent(input$compareFitsCheck, {
-    selected_run <- values$sample_runs[which(values$sample_runs$fit_name == paste0(input$selectInput_selectFit)),]
-    selected_run_compare <- values$sample_runs_compare[which(values$sample_runs_compare$fit_name == paste0(input$selectInput_selectFit_compare)),]
+    # Resolve per pane so an 'Ultra' view renders the nested ultra run; identity
+    # for Purity/Hisens, i.e. unchanged for standard samples.
+    view1 <- resolve_view_run_2n(values$sample_runs, input$selectInput_selectFit,
+                                 view_fit_type)
+    view2 <- resolve_view_run_2n(values$sample_runs_compare, input$selectInput_selectFit_compare,
+                                 view_fit_type_compare)
+    selected_run          <- view1$run
+    selected_run_compare  <- view2$run
+    view_fit_type         <- view1$type
+    view_fit_type_compare <- view2$type
 
 
     if (input$compareFitsCheck) {
@@ -2642,13 +2926,13 @@ function(input, output, session) {
                       selection=list(mode='single'),
                       options = list(columnDefs = list(list(className = 'dt-center', targets=0:2)),
                                      pageLength = 50, dom = 't', rownames= FALSE),
-                      colnames = c("Filter" , selected_run$tumor_sample_id, selected_run_compare$tumor_sample_id, "Flag Description"),
+                      colnames = c("Filter" , pane_label_2n(selected_run, values$is_2n, values$fit_class), pane_label_2n(selected_run_compare, values$is_2n_compare, values$fit_class_compare), "Flag Description"),
                       escape=F)
       })
 
       output$datatable_cncf <- DT::renderDataTable({
-        cncf_data1 <- get_cncf_table(input$radioGroupButton_fitType, selected_run)
-        cncf_data2 <- get_cncf_table(input$radioGroupButton_fitType_compare, selected_run_compare)
+        cncf_data1 <- get_cncf_table(view_fit_type, selected_run)
+        cncf_data2 <- get_cncf_table(view_fit_type_compare, selected_run_compare)
 
         if (dim(cncf_data1)[1] == 0 || dim(cncf_data2)[1] == 0) {
           showModal(modalDialog(title = "CNCF file missing", "Invalid CNCF file"))
@@ -2733,9 +3017,9 @@ function(input, output, session) {
       })
 
       output$editableSegmentsTable <- rhandsontable::renderRHandsontable({
-        cncf_data1 <- get_cncf_table(input$radioGroupButton_fitType_compare, selected_run_compare) %>%
+        cncf_data1 <- get_cncf_table(view_fit_type_compare, selected_run_compare) %>%
           data.frame()
-        cncf_data2 <- get_cncf_table(input$radioGroupButton_fitType, selected_run) %>%
+        cncf_data2 <- get_cncf_table(view_fit_type, selected_run) %>%
           data.frame()
 
         if (dim(cncf_data1)[1] == 0 || dim(cncf_data2)[1] == 0) {
@@ -2788,7 +3072,7 @@ function(input, output, session) {
 
         output$datatable_cncf <- DT::renderDataTable({
           cncf_data <-
-            get_cncf_table(input$radioGroupButton_fitType, selected_run)
+            get_cncf_table(view_fit_type, selected_run)
           if ( dim(cncf_data)[1] == 0 ){
             showModal(modalDialog( title = "CNCF file missing", "Invalid CNCF file" ))
             return()
@@ -2853,7 +3137,7 @@ function(input, output, session) {
 
         output$editableSegmentsTable <- rhandsontable::renderRHandsontable({
           cncf_data <-
-            get_cncf_table(input$radioGroupButton_fitType, selected_run) %>%
+            get_cncf_table(view_fit_type, selected_run) %>%
             data.frame()
           if ( dim(cncf_data)[1] == 0 ){
             showModal(modalDialog( title = "CNCF file missing", "Invalid CNCF file" ))
@@ -2974,6 +3258,14 @@ function(input, output, session) {
     review_status = input$radioButtons_reviewStatus
     fit_name = input$selectInput_selectBestFit[1]
 
+    # Rule 15: ultra runs are view-only. They are filtered out of the best-fit
+    # dropdown, so this is a belt-and-braces guard against a stale value.
+    if (isTRUE(is_ultra_fit_2n(fit_name))) {
+      showNotification("Ultra runs are view-only and cannot be selected as a fit.",
+                       type = "error", duration = 5)
+      return(NULL)
+    }
+
     fp_user <- Sys.getenv("FP_USER_ID", "")
     is_vm <- nzchar(fp_user)
 
@@ -3046,9 +3338,24 @@ function(input, output, session) {
       facets_suite_version = c(facets_suite_version),
       stringsAsFactors=FALSE
     )
-    update_review_status_file(path, df)
+    if (isTRUE(values$is_2n)) {
+      # 2n ruleset: in-place demotion of a superseded human best fit (rules
+      # 10/14), reviewed_no_fit forced to 'Not selected' (spec sec.2), and an
+      # atomic full-table write (rule 21). Rule-13 is_best_fit via the _2n
+      # variant. The standard path below is untouched.
+      if (!submit_review_2n(path, df)) {
+        showModal(modalDialog(
+          title = "Failed to add review",
+          paste0("Could not write ", path, "/facets_review.manifest")
+        ))
+        return(NULL)
+      }
+      update_best_fit_status_2n(sample, path)
+    } else {
+      update_review_status_file(path, df)
 
-    update_best_fit_status(sample, path)
+      update_best_fit_status(sample, path)
+    }
 
     refresh_review_status(sample, path, values$sample_runs)
   })
@@ -3065,18 +3372,34 @@ function(input, output, session) {
     }
     values$show_fit_type = ""
 
+    # Defensive: a stale 'Ultra' selection can only exist on an authorized 2n
+    # pane. Unreachable for a standard sample (Ultra is never in its choices).
+    if (identical(input$radioGroupButton_fitType, 'Ultra') &&
+        !(isTRUE(values$is_2n) && authorized_full())) {
+      shinyWidgets::updateRadioGroupButtons(session, "radioGroupButton_fitType", selected = "Hisens")
+      return(NULL)
+    }
+
     output$verbatimTextOutput_runParams <- renderText({})
     output$imageOutput_pngImage1 <- renderImage({ list(src="", width=0, height=0)}, deleteFile=FALSE)
 
-    selected_run <- values$sample_runs[which(values$sample_runs$fit_name == paste0(input$selectInput_selectFit)),]
+    # For every run type but 'Ultra' this is the fit's own row and the run type
+    # unchanged -- i.e. exactly what this observer used to compute inline. For
+    # 'Ultra' it swaps in the nested <fit>/ultra row, which is hisens-only.
+    view <- resolve_view_run_2n(values$sample_runs, input$selectInput_selectFit,
+                                input$radioGroupButton_fitType)
+    selected_run  <- view$run
+    view_fit_type <- view$type
+    view_is_ultra <- view$is_ultra
 
     shinyjs::hideElement("button_saveChanges")
     output$verbatimTextOutput_runParams <- renderText({
-      if (input$radioGroupButton_fitType == "Hisens") {
+      ultra_tag <- if (isTRUE(view_is_ultra)) "\n[ultra run -- view only]" else ""
+      if (view_fit_type == "Hisens") {
         paste0("purity: ", selected_run$hisens_run_Purity[1], ", ",
                "ploidy: ", selected_run$hisens_run_Ploidy[1], ", ",
                "dipLogR: ", selected_run$hisens_run_dipLogR[1], "\n",
-               "facets_lib: ", selected_run$hisens_run_version[1])
+               "facets_lib: ", selected_run$hisens_run_version[1], ultra_tag)
       } else {
         paste0("purity: ", selected_run$purity_run_Purity[1], ", ",
                "ploidy: ", selected_run$purity_run_Ploidy[1], ", ",
@@ -3088,7 +3411,7 @@ function(input, output, session) {
 
     output$datatable_cncf <- DT::renderDataTable({
       cncf_data <-
-        get_cncf_table(input$radioGroupButton_fitType, selected_run)
+        get_cncf_table(view_fit_type, selected_run)
       if ( dim(cncf_data)[1] == 0 ){
         showModal(modalDialog( title = "CNCF file missing", "Invalid CNCF file" ))
         return()
@@ -3153,7 +3476,7 @@ function(input, output, session) {
 
     output$editableSegmentsTable <- rhandsontable::renderRHandsontable({
       cncf_data <-
-        get_cncf_table(input$radioGroupButton_fitType, selected_run) %>%
+        get_cncf_table(view_fit_type, selected_run) %>%
         data.frame()
       if ( dim(cncf_data)[1] == 0 ){
         showModal(modalDialog( title = "CNCF file missing", "Invalid CNCF file" ))
@@ -3175,7 +3498,7 @@ function(input, output, session) {
     })
 
     output$imageOutput_pngImage1 <- renderImage({
-      if (input$radioGroupButton_fitType == "Hisens") {
+      if (view_fit_type == "Hisens") {
         png_filename = paste0(selected_run$hisens_run_prefix[1], ".CNCF.png")
       } else {
         png_filename = paste0(selected_run$purity_run_prefix[1], ".CNCF.png")
@@ -3211,10 +3534,28 @@ function(input, output, session) {
 
     selected_run <- values$sample_runs[which(values$sample_runs$fit_name == paste0(input$selectInput_selectFit)),]
     selected_run_compare <- values$sample_runs_compare[which(values$sample_runs_compare$fit_name == paste0(input$selectInput_selectFit_compare)),]
+    # Defensive: a stale 'Ultra' on the compare pane (see the main pane's guard).
+    if (identical(input$radioGroupButton_fitType_compare, 'Ultra') &&
+        !(isTRUE(values$is_2n_compare) && authorized_full())) {
+      shinyWidgets::updateRadioGroupButtons(session, "radioGroupButton_fitType_compare", selected = "Hisens")
+      return(NULL)
+    }
+
+    # Each pane resolves independently: the main pane may be standard while the
+    # compare pane is 2n (or vice versa), and the two may sit on different
+    # classes of the same pair.
+    view1 <- resolve_view_run_2n(values$sample_runs, input$selectInput_selectFit,
+                                 input$radioGroupButton_fitType)
+    view2 <- resolve_view_run_2n(values$sample_runs_compare, input$selectInput_selectFit_compare,
+                                 input$radioGroupButton_fitType_compare)
+    selected_run          <- view1$run
+    selected_run_compare  <- view2$run
+    view_fit_type         <- view1$type
+    view_fit_type_compare <- view2$type
 
     shinyjs::hideElement("button_saveChanges")
     output$verbatimTextOutput_runParams_compare <- renderText({
-      if (input$radioGroupButton_fitType_compare == "Hisens") {
+      if (view_fit_type_compare == "Hisens") {
         paste0("purity: ", selected_run_compare$hisens_run_Purity[1], ", ",
                "ploidy: ", selected_run_compare$hisens_run_Ploidy[1], ", ",
                "dipLogR: ", selected_run_compare$hisens_run_dipLogR[1], "\n",
@@ -3229,8 +3570,8 @@ function(input, output, session) {
     })
 
     output$datatable_cncf <- DT::renderDataTable({
-      cncf_data1 <- get_cncf_table(input$radioGroupButton_fitType, selected_run)
-      cncf_data2 <- get_cncf_table(input$radioGroupButton_fitType_compare, selected_run_compare)
+      cncf_data1 <- get_cncf_table(view_fit_type, selected_run)
+      cncf_data2 <- get_cncf_table(view_fit_type_compare, selected_run_compare)
 
       if (dim(cncf_data1)[1] == 0 || dim(cncf_data2)[1] == 0) {
         showModal(modalDialog(title = "CNCF file missing", "Invalid CNCF file"))
@@ -3298,9 +3639,9 @@ function(input, output, session) {
 
 
     output$editableSegmentsTable <- rhandsontable::renderRHandsontable({
-      cncf_data1 <- get_cncf_table(input$radioGroupButton_fitType, selected_run) %>%
+      cncf_data1 <- get_cncf_table(view_fit_type, selected_run) %>%
         data.frame()
-      cncf_data2 <- get_cncf_table(input$radioGroupButton_fitType_compare, selected_run_compare) %>%
+      cncf_data2 <- get_cncf_table(view_fit_type_compare, selected_run_compare) %>%
         data.frame()
 
       if (dim(cncf_data1)[1] == 0 || dim(cncf_data2)[1] == 0) {
@@ -3325,7 +3666,7 @@ function(input, output, session) {
     })
 
     output$imageOutput_pngImage2 <- renderImage({
-      if (input$radioGroupButton_fitType_compare == "Hisens") {
+      if (view_fit_type_compare == "Hisens") {
         png_filename = paste0(selected_run_compare$hisens_run_prefix[1], ".CNCF.png")
       } else {
         png_filename = paste0(selected_run_compare$purity_run_prefix[1], ".CNCF.png")
@@ -3345,6 +3686,15 @@ function(input, output, session) {
     if(is.null(input$editableSegmentsTable$changes$changes)){
       return(NULL)
     }
+    # Ultra runs are view-only (rule 15): never write an edited cncf against one.
+    if (identical(input$radioGroupButton_fitType, 'Ultra')) {
+      showModal(modalDialog(
+        title = "Not saved",
+        "Ultra runs are view-only. Switch to Purity or Hisens to edit segments."
+      ))
+      return(NULL)
+    }
+
     selected_run <- values$sample_runs[which(values$sample_runs$fit_name == paste0(input$selectInput_selectFit)),]
     df <- rhandsontable::hot_to_r(input$editableSegmentsTable)
 
@@ -3381,13 +3731,17 @@ function(input, output, session) {
       return(NULL)
     }
 
-    selected_run <-
-      values$sample_runs[which(values$sample_runs$fit_name == paste0(input$selectInput_selectFit)),]
+    view1 <- resolve_view_run_2n(values$sample_runs, input$selectInput_selectFit,
+                                 view_fit_type)
+    selected_run  <- view1$run
+    view_fit_type <- view1$type
 
     if(input$compareFitsCheck)
     {
-      selected_run_compare <-
-        values$sample_runs_compare[which(values$sample_runs_compare$fit_name == paste0(input$selectInput_selectFit_compare)),]
+      view2 <- resolve_view_run_2n(values$sample_runs_compare, input$selectInput_selectFit_compare,
+                                   view_fit_type_compare)
+      selected_run_compare  <- view2$run
+      view_fit_type_compare <- view2$type
     }
 
     selected_gene = input$textInput_geneForCloseup
@@ -3401,7 +3755,7 @@ function(input, output, session) {
     if(input$compareFitsCheck)
     {
       output$plotOutput_closeup <- renderPlot ({
-        if (input$radioGroupButton_fitType == "Hisens") {
+        if (view_fit_type == "Hisens") {
           rdata_file = paste0(selected_run$hisens_run_prefix[1], ".Rdata")
           rdata_file_compare = paste0(selected_run_compare$hisens_run_prefix[1], ".Rdata")
         } else {
@@ -3427,15 +3781,15 @@ function(input, output, session) {
                                       system.file("data/Homo_sapiens.GRCh37.75.gene_positions.txt",
                                                   package="facetsPreview"))
 
-        header1 <- grid::textGrob(selected_run$tumor_sample_id, gp=grid::gpar(fontsize=14, fontface="bold"))
-        header2 <- grid::textGrob(selected_run_compare$tumor_sample_id,, gp=grid::gpar(fontsize=14, fontface="bold"))
+        header1 <- grid::textGrob(pane_label_2n(selected_run, values$is_2n, values$fit_class), gp=grid::gpar(fontsize=14, fontface="bold"))
+        header2 <- grid::textGrob(pane_label_2n(selected_run_compare, values$is_2n_compare, values$fit_class_compare),, gp=grid::gpar(fontsize=14, fontface="bold"))
 
         # Combine the plots from both datasets
         plot1 <- gridExtra::grid.arrange(
           closeup_output1$cnlr, closeup_output1$valor,
           closeup_output1$icnem, closeup_output1$cfem,
           ncol = 1,
-          top = paste0(selected_run$tumor_sample_id,
+          top = paste0(pane_label_2n(selected_run, values$is_2n, values$fit_class),
                        ": ", selected_gene,
                        " | ", closeup_output1$chrom,
                        ":", closeup_output1$start,
@@ -3447,7 +3801,7 @@ function(input, output, session) {
           closeup_output2$cnlr, closeup_output2$valor,
           closeup_output2$icnem, closeup_output2$cfem,
           ncol = 1,
-          top = paste0(selected_run_compare$tumor_sample_id,
+          top = paste0(pane_label_2n(selected_run_compare, values$is_2n_compare, values$fit_class_compare),
                        ": ", selected_gene,
                        " | ", closeup_output2$chrom,
                        ":", closeup_output2$start,
@@ -3461,7 +3815,7 @@ function(input, output, session) {
     else
     {
       output$plotOutput_closeup <- renderPlot ({
-        if (input$radioGroupButton_fitType == "Hisens") {
+        if (view_fit_type == "Hisens") {
           rdata_file = paste0(selected_run$hisens_run_prefix[1], ".Rdata")
         } else {
           rdata_file = paste0(selected_run$purity_run_prefix[1], ".Rdata")

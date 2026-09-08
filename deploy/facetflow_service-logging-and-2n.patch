@@ -1,0 +1,139 @@
+--- a/facetflow_service/settings.py
++++ b/facetflow_service/settings.py
+@@ -284,3 +284,22 @@
+ FACETS_IRIS_WRAPPER = os.environ.get("FACETS_IRIS_WRAPPER")
+ FACETS_IRIS_RLIBS = os.environ.get("FACETS_IRIS_RLIBS")
+ FACETS_IRIS_REFIT_QUEUE = os.environ.get("FACETS_IRIS_REFIT_QUEUE")
++
++# 2n refits: the pinned facets_2n_cadence .sif that a queued 2n job runs under,
++# and the directory holding the facets2n reference normal pools. The Shiny app
++# reads these as FP_IRIS_2N_SIF / FP_IRIS_2N_REF_LIB_DIR; with them unset it
++# refuses a 2n refit with an explanatory dialog rather than queueing a bad job.
++FACETS_IRIS_2N_SIF = os.environ.get("FACETS_IRIS_2N_SIF", "")
++FACETS_IRIS_2N_REF_LIB_DIR = os.environ.get("FACETS_IRIS_2N_REF_LIB_DIR", "")
++
++# Host directory bind-mounted into every session container as /fp_logs. When set,
++# the container writes a per-session log file there instead of to its stdout,
++# which is what stops the (uncapped) Docker json-file logs from filling
++# /var/lib/docker and wedging the daemon.
++FACETS_LOG_DIR = os.environ.get("FACETS_LOG_DIR", "")
++
++# Per-container log rotation. A container still emits a little stdout even with
++# FP_LOG_DIR set, and one started without it would otherwise grow without bound:
++# the daemon default json-file driver has no max-size.
++FACETS_LOG_MAX_SIZE = os.environ.get("FACETS_LOG_MAX_SIZE", "10m")
++FACETS_LOG_MAX_FILE = os.environ.get("FACETS_LOG_MAX_FILE", "3")
+--- a/session/facets/facets_app.py
++++ b/session/facets/facets_app.py
+@@ -1,5 +1,6 @@
+ import logging
+ import docker
++from docker.types import LogConfig
+ from django.conf import settings
+ from core.models import AccessLevel
+ from django.contrib.auth import get_user_model
+@@ -47,7 +48,10 @@
+             f'FP_IRIS_RSCRIPT={settings.FACETS_IRIS_RSCRIPT}',
+             f'FP_IRIS_WRAPPER={settings.FACETS_IRIS_WRAPPER}',
+             f'FP_IRIS_RLIBS={settings.FACETS_IRIS_RLIBS}',
+-            f'FP_IRIS_REFIT_QUEUE={settings.FACETS_IRIS_REFIT_QUEUE}'
++            f'FP_IRIS_REFIT_QUEUE={settings.FACETS_IRIS_REFIT_QUEUE}',
++            f'FP_IRIS_2N_SIF={settings.FACETS_IRIS_2N_SIF}',
++            f'FP_IRIS_2N_REF_LIB_DIR={settings.FACETS_IRIS_2N_REF_LIB_DIR}',
++            f'FP_SESSION_ID={self.session_id}'
+         ]
+         mount_points = settings.MOUNT_POINTS.split(",")
+         for mount_point in mount_points:
+@@ -55,6 +59,24 @@
+                 "bind": mount_point,
+                 "mode": "rw"
+             }
++
++        # Session logs go to a host directory instead of container stdout. The
++        # container writes <FP_LOG_DIR>/fp_<user>_<session>_<stamp>.log; see
++        # run_fp.sh in the facets-preview repo.
++        if settings.FACETS_LOG_DIR:
++            volumes[settings.FACETS_LOG_DIR] = {
++                "bind": "/fp_logs",
++                "mode": "rw"
++            }
++            environment.append('FP_LOG_DIR=/fp_logs')
++
++        # Cap what does reach stdout. Without this the daemon default json-file
++        # driver is unbounded, and a long-lived session fills /var/lib/docker.
++        log_config = LogConfig(type=LogConfig.types.JSON, config={
++            'max-size': settings.FACETS_LOG_MAX_SIZE,
++            'max-file': settings.FACETS_LOG_MAX_FILE,
++        })
++
+         container = client.containers.run(
+             image=settings.FACETS_IMAGE,
+             name=self.session_id,
+@@ -64,6 +86,7 @@
+             working_dir=self.work_dir,
+             user=f"{settings.FACETS_CONTAINER_USER}:{settings.FACETS_CONTAINER_GROUP}",
+             group_add=settings.FACETS_CONTAINER_ADDITIONAL_GROUPS,
++            log_config=log_config,
+             detach=True
+         )
+         print(f"Container started: {container.id}")
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -3,6 +3,11 @@
+ services:
+   traefik:
+     image: traefik:v3.0
++    logging:
++      driver: json-file
++      options:
++        max-size: "20m"
++        max-file: "5"
+     ports:
+       - "8081:8081"    # For your router
+     volumes:
+@@ -12,6 +17,11 @@
+ 
+   db:
+     image: postgres:15
++    logging:
++      driver: json-file
++      options:
++        max-size: "20m"
++        max-file: "5"
+     environment:
+       POSTGRES_DB: ${FACETS_DB_NAME}
+       POSTGRES_USER: ${FACETS_DB_USERNAME}
+@@ -28,6 +38,11 @@
+ 
+   rabbitmq:
+     image: rabbitmq:3-management
++    logging:
++      driver: json-file
++      options:
++        max-size: "20m"
++        max-file: "5"
+     environment:
+       RABBITMQ_DEFAULT_USER: ${FACETS_RABBITMQ_USERNAME}
+       RABBITMQ_DEFAULT_PASS: ${FACETS_RABBITMQ_PASSWORD}
+@@ -44,6 +59,11 @@
+ 
+   web:
+     build: .
++    logging:
++      driver: json-file
++      options:
++        max-size: "20m"
++        max-file: "5"
+     ports:
+       - "8080:8080"
+     environment:
+@@ -73,6 +93,9 @@
+       - FACETS_IRIS_WRAPPER=${FACETS_IRIS_WRAPPER}
+       - FACETS_IRIS_RLIBS=${FACETS_IRIS_RLIBS}
+       - FACETS_IRIS_REFIT_QUEUE=${FACETS_IRIS_REFIT_QUEUE}
++      - FACETS_IRIS_2N_SIF=${FACETS_IRIS_2N_SIF}
++      - FACETS_IRIS_2N_REF_LIB_DIR=${FACETS_IRIS_2N_REF_LIB_DIR}
++      - FACETS_LOG_DIR=${FACETS_LOG_DIR}
+ 
+     volumes:
+       - ../facetflow_service:/app

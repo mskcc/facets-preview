@@ -5,7 +5,7 @@ LABEL maintainer="Adam Price (price2@mskcc.org)" \
 	contributor="Yixiao Gong (gongy@mskcc.org)" \
 	contributor="Nikhil Kumar (kumarn1@mskcc.org)" \
 	contributor="Philip Jonsson (jonssonp@mskcc.org)" \
-	version.image="0.0.1-rebuild" \
+	version.image="3.3.0" \
 	version.facets_suite="2.0.8" \
 	version.facets="0.5.14" \
 	version.alpine="3.8" \
@@ -14,7 +14,7 @@ LABEL maintainer="Adam Price (price2@mskcc.org)" \
 
 ENV FACETS_SUITE_VERSION 2.0.8
 ENV FACETS_VERSION 0.5.14
-ENV FACETS_PREVIEW_VERSION 3.0.0
+ENV FACETS_PREVIEW_VERSION 3.3.0
 ENV PCTGCDATA 0.2.0
 
 RUN sed -i '/jessie-updates/d' /etc/apt/sources.list

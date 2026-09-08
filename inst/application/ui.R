@@ -510,6 +510,16 @@ ui <-
                           id = "fitPanel",
                           h4(strong("Generate Refits:")),
 
+                          # 2n only: a refit runs the whole 5-fit model, so it
+                          # always regenerates BOTH class subtrees, and a manual
+                          # dipLogR applies to the class currently being viewed.
+                          shinyjs::hidden(
+                            div(id = "div_refitNote2n",
+                                p(id = "text_refitNote2n", "",
+                                  style = "color: #1a5490; font-style: italic; font-size: 9pt; margin-bottom: 6px;")
+                            )
+                          ),
+
                           column(12,
                                  textInput("textInput_newDipLogR", value = "", "dipLogR")
                           ),

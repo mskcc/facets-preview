@@ -218,6 +218,22 @@ function(input, output, session) {
     password_personal = NULL
   )
 
+  # Session markers: with FP_LOG_DIR set these bracket a session in the log file,
+  # so a container serving several sessions can still be read per session.
+  message(sprintf("[FP] session %s OPENED  user=%s mode=%s version=%s",
+                  session$token,
+                  Sys.getenv("FP_USER_ID", "unknown"),
+                  Sys.getenv("FP_MODE", "local"),
+                  as.character(utils::packageVersion("facetsPreview"))))
+  session$onSessionEnded(function() {
+    message(sprintf("[FP] session %s CLOSED user=%s",
+                    session$token, Sys.getenv("FP_USER_ID", "unknown")))
+  })
+
+  # In VM mode warnings go to the session log as they happen rather than being
+  # buffered to the end of a top-level call, where they are easy to misattribute.
+  if (is_vm_mode()) options(warn = 1)
+
   shinyjs::hide("div_imageOutput_pngImage2")
 
   default_geneLevel_columns <- c("sample", "gene", "chrom", "cf.em", "tcn.em", "lcn.em", "cn_state", "filter")
@@ -531,6 +547,221 @@ function(input, output, session) {
     })
   }
 
+  # --- refit job submission ---------------------------------------------------
+  # Write a refit command into the queue the refit_manager listener watches.
+  # Reports a missing/unwritable queue dir or a failed write as a modal, and
+  # returns FALSE, so the caller never claims "Job submitted!" for a job that
+  # was never queued (previously a NULL counts file could leave an EMPTY queue
+  # file behind and still report success).
+  queue_refit_job <- function(queue_file_path, refit_cmd) {
+    if (is.null(refit_cmd) || length(refit_cmd) == 0 ||
+        !nzchar(trimws(paste(refit_cmd, collapse = "")))) {
+      showModal(modalDialog(
+        title = "Cannot submit refit",
+        "The refit command came out empty, so nothing was queued. Check that a counts file is selected."))
+      return(FALSE)
+    }
+
+    queue_dir <- dirname(queue_file_path)
+    problem <- fp_describe_dir_write_problem(queue_dir)
+    if (!is.na(problem)) {
+      showModal(modalDialog(
+        title = "Cannot submit refit",
+        paste0("The refit queue directory could not be used:\n\n", queue_dir,
+               "\n\n", problem)))
+      return(FALSE)
+    }
+
+    ok <- tryCatch({
+      writeLines(refit_cmd, con = queue_file_path)
+      Sys.chmod(queue_file_path, mode = "0775")
+      file.exists(queue_file_path) && file.size(queue_file_path) > 0
+    }, error = function(e) {
+      showModal(modalDialog(
+        title = "Cannot submit refit",
+        paste0("Failed to write the refit job:\n\n", queue_file_path,
+               "\n\n", conditionMessage(e))))
+      FALSE
+    })
+
+    if (!isTRUE(ok)) {
+      if (file.exists(queue_file_path) && file.size(queue_file_path) == 0) {
+        unlink(queue_file_path)
+        showModal(modalDialog(
+          title = "Cannot submit refit",
+          paste0("The refit job file was written empty and has been removed:\n\n",
+                 queue_file_path)))
+      }
+      return(FALSE)
+    }
+    TRUE
+  }
+
+  # --- 2n refit command -------------------------------------------------------
+  # Reference-normal set for a 2n pair, keyed on the tumor id's assay + panel
+  # version (P-0000000-T01-IM6 -> cv6 solid, ...-IH4 -> cv4 heme). Mirrors the
+  # resolution CADENCE's facets_subwf_2n.nf performs; all three files or nothing,
+  # because a partial set fails deep inside facets2n.
+  resolve_reference_normals_2n <- function(pair_tag, lib_dir) {
+    tumor_id <- strsplit(pair_tag, "_", fixed = TRUE)[[1]][1]
+    m <- regmatches(tumor_id, regexec("-(IM|IH)([0-9]+)", tumor_id))[[1]]
+    if (length(m) != 3) {
+      return(list(error = paste0("Could not read an assay/panel version from '", tumor_id,
+                                 "', so no facets2n reference normal set could be chosen.")))
+    }
+    panel   <- if (m[2] == "IH") "heme" else "solid"
+    version <- m[3]
+
+    first_existing <- function(candidates) {
+      for (c in candidates) {
+        f <- file.path(lib_dir, c)
+        if (file.exists(f)) return(f)
+      }
+      NA_character_
+    }
+
+    pileup <- first_existing(sprintf("cv%s_%s_reference_normals_r1.snp_pileup.gz", version, panel))
+    loess  <- first_existing(sprintf("cv%s_%s_reference_normals_r1.loess.txt", version, panel))
+    # Heme targets are always panel-infixed; solid falls back to the bare name.
+    # The fallback must NOT be offered to heme, or an IH sample would silently
+    # pick up solid targets.
+    targets <- if (panel == "heme") {
+      first_existing(sprintf("cv%s_heme_picard_targets.interval_list", version))
+    } else {
+      first_existing(c(sprintf("cv%s_solid_picard_targets.interval_list", version),
+                       sprintf("cv%s_picard_targets.interval_list", version)))
+    }
+
+    if (is.na(pileup) || is.na(loess) || is.na(targets)) {
+      return(list(error = paste0(
+        "No complete facets2n reference normal set for ", panel, " cv", version,
+        " in:\n\n", lib_dir,
+        "\n\nNeeded: cv", version, "_", panel, "_reference_normals_r1.snp_pileup.gz, ",
+        "cv", version, "_", panel, "_reference_normals_r1.loess.txt, and the matching ",
+        "picard targets interval_list.")))
+    }
+    list(pileup = pileup, loess = loess, targets = targets, panel = panel, version = version)
+  }
+
+  # Build the queued shell script for a 2n refit. Deliberately independent of the
+  # standard refit command: a different wrapper (facets-suite-2n), reference
+  # normals, a pair-level counts file, and a post-run split into the class
+  # subtrees. Returns list(script=, refit_dirs=, note=) or list(error=).
+  build_refit_cmd_2n <- function(sample_id, pair_dir, fit_class, refit_tag,
+                                 with_dipLogR, new_dipLogR, min_nhet,
+                                 purity_min_nhet, snp_window, normal_depth,
+                                 counts_file) {
+    sif <- Sys.getenv("FP_IRIS_2N_SIF", "")
+    if (!nzchar(sif)) {
+      return(list(error = paste0(
+        "2n refits need the facets2n container image. Set FP_IRIS_2N_SIF to the ",
+        "facets_2n_cadence .sif on the execution host.")))
+    }
+    if (!file.exists(sif)) {
+      return(list(error = paste0("The configured facets2n container image does not exist:\n\n", sif)))
+    }
+
+    lib_dir <- Sys.getenv("FP_IRIS_2N_REF_LIB_DIR",
+                          "/data1/core006/ccs/shared/resources/impact_2n/unmatched_pools")
+    if (!dir.exists(lib_dir)) {
+      return(list(error = paste0(
+        "The facets2n reference normal directory does not exist:\n\n", lib_dir,
+        "\n\nSet FP_IRIS_2N_REF_LIB_DIR to the directory holding the cv* reference pools.")))
+    }
+
+    pair_tag <- basename(pair_dir)
+    refs <- resolve_reference_normals_2n(pair_tag, lib_dir)
+    if (!is.null(refs$error)) return(list(error = refs$error))
+
+    # The counts file is a property of the PAIR, not of a class subtree.
+    if (is.null(counts_file) || is.na(counts_file) || !nzchar(counts_file) ||
+        !file.exists(counts_file)) {
+      cand <- file.path(pair_dir, paste0("countsMerged____", pair_tag, ".dat.gz"))
+      if (!file.exists(cand)) {
+        return(list(error = paste0(
+          "No counts file for this pair. Expected:\n\n", cand,
+          "\n\nSelect one with 'Select Counts File'.")))
+      }
+      counts_file <- cand
+    }
+
+    # A refit runs BOTH classes in one wrapper invocation (that is how the 5-fit
+    # model works), so a manual dipLogR is applied to the class being viewed and
+    # the other class keeps its facets-selected value.
+    diplogr_flag <- ""
+    note <- ""
+    if (isTRUE(with_dipLogR)) {
+      if (identical(fit_class, "clinical")) {
+        diplogr_flag <- glue("--clinical-dipLogR {new_dipLogR} ")
+        note <- paste0("dipLogR ", new_dipLogR, " was applied to the clinical fits; ",
+                       "the research fits use their facets-selected dipLogR.")
+      } else {
+        diplogr_flag <- glue("--dipLogR {new_dipLogR} ")
+        note <- paste0("dipLogR ", new_dipLogR, " was applied to the research fits; ",
+                       "the clinical fits use their facets-selected dipLogR.")
+      }
+    }
+
+    refit_name  <- paste0("refit_", refit_tag)
+    staging_dir <- file.path(pair_dir, refit_name)
+
+    binds <- Sys.getenv("FP_IRIS_2N_BINDS", "/data1/core005,/data1/core006")
+    bind_flags <- paste(sprintf("-B %s", trimws(strsplit(binds, ",")[[1]])), collapse = " ")
+
+    splitter <- system.file("scripts", "split_facets_2n.py", package = "facetsPreview")
+    if (!nzchar(splitter) || !file.exists(splitter)) {
+      splitter <- file.path(dirname(getwd()), "scripts", "split_facets_2n.py")
+    }
+    if (!file.exists(splitter)) {
+      return(list(error = paste0(
+        "The 2n split script could not be found (inst/scripts/split_facets_2n.py). ",
+        "A 2n refit cannot be placed into the clinical/research subtrees without it.")))
+    }
+    splitter_src <- paste(readLines(splitter, warn = FALSE), collapse = "\n")
+
+    wrapper_cmd <- glue(paste0(
+      'singularity exec {bind_flags} {sif} ',
+      '/usr/bin/facets-suite/run-facets-wrapper.R ',
+      '--everything --legacy-output --clinical --MandUnormal --refX ',
+      '--genome hg19 --seed 100 ',
+      '--counts-file {counts_file} ',
+      '--sample-id {pair_tag} ',
+      '--snp-window-size {snp_window} ',
+      '--normal-depth {normal_depth} ',
+      '--min-nhet {min_nhet} ',
+      '--purity-min-nhet {purity_min_nhet} ',
+      diplogr_flag,
+      '--facets2n-lib-path /usr/local/lib/R/site-library ',
+      '--reference-snp-pileup {refs$pileup} ',
+      '--reference-loess-file {refs$loess} ',
+      '--targetFile {refs$targets} ',
+      '--directory {staging_dir}'))
+
+    # The wrapper emits one flat dir of class-infixed files; the splitter
+    # reshapes it into <pair>/{clinical,research}/<refit>/ (+ research ultra),
+    # exactly as the pipeline's SPLIT_FACETS_2N does.
+    script <- c(
+      "#!/bin/bash",
+      "set -euo pipefail",
+      "",
+      paste0("# 2n refit for ", pair_tag, " (", refit_name, ")"),
+      paste0("mkdir -p ", shQuote(staging_dir)),
+      wrapper_cmd,
+      "",
+      "# Reshape the flat 5-fit output into the clinical/research subtrees.",
+      paste0("SPLIT_SRC=$(mktemp /tmp/split_facets_2n_XXXXXX.py)"),
+      "cat > \"$SPLIT_SRC\" <<'FP_SPLIT_EOF'",
+      splitter_src,
+      "FP_SPLIT_EOF",
+      paste0("python3 \"$SPLIT_SRC\" ", shQuote(pair_tag), " ", shQuote(staging_dir),
+             " ", shQuote(pair_dir), " ", shQuote(refit_name)),
+      "rm -f \"$SPLIT_SRC\"")
+
+    list(script = script,
+         refit_dirs = file.path(pair_dir, c("clinical", "research"), refit_name),
+         note = note)
+  }
+
   # --- 2n helpers -------------------------------------------------------------
   # Full authorization: the in-app full-access password. This is the ONLY gate on
   # the Ultra run type (FP_ACCESS_LEVEL is not consulted).
@@ -614,6 +845,19 @@ function(input, output, session) {
 
     pp  <- if (is_cmp) values$pair_paths_compare else values$pair_paths
     cls <- if (is_cmp) values$fit_class_compare else values$fit_class
+
+    if (!is_cmp) {
+      # Explain the 2n refit semantics next to the refit controls.
+      if (isTRUE(is_2n) && !is.na(cls)) {
+        shinyjs::html("text_refitNote2n", paste0(
+          "2n sample: a refit regenerates both the clinical and research fits. ",
+          "A dipLogR entered here is applied to the ", cls, " fits (the class ",
+          "currently shown); the other class keeps its facets-selected dipLogR."))
+        shinyjs::show("div_refitNote2n")
+      } else {
+        shinyjs::hide("div_refitNote2n")
+      }
+    }
 
     if (!isTRUE(is_2n) || is.null(pp) || is.na(cls)) {
       shinyjs::hide(div_id)
@@ -753,8 +997,11 @@ function(input, output, session) {
     fp_user_workdir      <- Sys.getenv("FP_USER_WORKDIR", "")
 
     base_rows <- list(
+      list(label = "facets-preview",       value = as.character(utils::packageVersion("facetsPreview"))),
       list(label = "FP_MODE",              value = null_if_empty(fp_mode)),
       list(label = "FP_USER_ID",           value = null_if_empty(fp_user_id)),
+      list(label = "FP_SESSION_ID",        value = show_or_unset(Sys.getenv("FP_SESSION_ID", ""))),
+      list(label = "FP_LOG_DIR",           value = show_or_unset(Sys.getenv("FP_LOG_DIR", ""))),
       list(label = "FP_USER_BASE_WORKDIR", value = null_if_empty(fp_user_base_workdir)),
       list(label = "FP_USER_WORKDIR",      value = null_if_empty(fp_user_workdir)),
       list(label = "fp_session_path()",    value = tryCatch(fp_session_path(),  error = function(e) "null")),
@@ -5044,27 +5291,70 @@ function(input, output, session) {
 
 
   observeEvent(input$button_refit, {
-    # Ensure all numeric parameters are actually numeric
-    if (!suppressWarnings(all(!is.na(as.numeric(c(
-      input$textInput_newPurityCval,
-      input$textInput_newHisensCval,
-      input$textInput_newPurityMinNHet,
-      input$textInput_newHisensMinNHet,
-      input$textInput_newNormalDepth,
-      input$textInput_newSnpWindowSize
-    )))))) {
+    # Refit parameters, with the wrapper's own defaults as a fallback.
+    #
+    # These fields are prefilled from the selected run's .out; when that .out
+    # carries no min.nhet / snp.nbhd / ndepth the field is left blank, and the
+    # numeric gate below used to reject the whole submission with a generic
+    # "non-numeric characters" modal. A blank field now falls back to the value
+    # the wrapper would have used anyway, and only genuinely non-numeric input is
+    # rejected -- naming the offending field.
+    refit_param_defaults <- list(
+      textInput_newPurityCval    = list(label = "Purity cVal",      default = 100),
+      textInput_newHisensCval    = list(label = "Hisens cVal",      default = 50),
+      textInput_newPurityMinNHet = list(label = "Purity Min nHet",  default = 15),
+      textInput_newHisensMinNHet = list(label = "Hisens Min nHet",  default = 15),
+      textInput_newNormalDepth   = list(label = "Normal Depth",     default = 35),
+      textInput_newSnpWindowSize = list(label = "SNP Window Size",  default = 250)
+    )
+
+    refit_params <- list()
+    bad_fields   <- character(0)
+    defaulted    <- character(0)
+    for (id in names(refit_param_defaults)) {
+      spec <- refit_param_defaults[[id]]
+      raw  <- trimws(as.character(input[[id]] %||% ""))
+      if (!nzchar(raw)) {
+        refit_params[[id]] <- spec$default
+        defaulted <- c(defaulted, paste0(spec$label, " = ", spec$default))
+        next
+      }
+      val <- suppressWarnings(as.numeric(raw))
+      if (is.na(val)) { bad_fields <- c(bad_fields, spec$label); next }
+      refit_params[[id]] <- val
+    }
+
+    if (length(bad_fields) > 0) {
       showModal(modalDialog(
         title = "Cannot submit refit",
-        paste0("Non-numeric characters are found in re-fit parameters")
+        paste0("These re-fit parameters must be numeric: ",
+               paste(bad_fields, collapse = ", "), ".")
       ))
       return(NULL)
     }
 
     with_dipLogR <- TRUE
     refit_note   <- ""
-    if (input$textInput_newDipLogR == "") {
+    dipLogR_raw  <- trimws(as.character(input$textInput_newDipLogR %||% ""))
+    if (!nzchar(dipLogR_raw)) {
+      # A blank dipLogR is valid and always has been: the flag is simply omitted
+      # and facets picks the dipLogR from the purity run.
       with_dipLogR <- FALSE
       refit_note   <- "Refit job is submitted without a dipLogR and therefore will be determined by purity run."
+    } else if (is.na(suppressWarnings(as.numeric(dipLogR_raw)))) {
+      # Previously this silently emitted "--dipLogR NA".
+      showModal(modalDialog(
+        title = "Cannot submit refit",
+        "dipLogR must be a number, or left blank to let the purity run determine it."
+      ))
+      return(NULL)
+    }
+
+    if (length(defaulted) > 0) {
+      showNotification(
+        paste0("Using default value(s) for blank re-fit parameter(s): ",
+               paste(defaulted, collapse = ", ")),
+        type = "warning", duration = 8)
     }
 
     sample_id <- values$sample_runs$tumor_sample_id[1]
@@ -5104,14 +5394,15 @@ function(input, output, session) {
     # --- Set up parameters for the new refit -------------------------------
     run_path <- selected_run$path[1]
 
-    new_purity_c        <- as.numeric(input$textInput_newPurityCval)
-    new_hisens_c        <- as.numeric(input$textInput_newHisensCval)
-    new_purity_m        <- as.numeric(input$textInput_newPurityMinNHet)
-    new_hisens_m        <- as.numeric(input$textInput_newHisensMinNHet)
-    new_normal_depth    <- as.numeric(input$textInput_newNormalDepth)
-    new_snp_window_size <- as.numeric(input$textInput_newSnpWindowSize)
+    # Validated (and default-filled) above.
+    new_purity_c        <- refit_params$textInput_newPurityCval
+    new_hisens_c        <- refit_params$textInput_newHisensCval
+    new_purity_m        <- refit_params$textInput_newPurityMinNHet
+    new_hisens_m        <- refit_params$textInput_newHisensMinNHet
+    new_normal_depth    <- refit_params$textInput_newNormalDepth
+    new_snp_window_size <- refit_params$textInput_newSnpWindowSize
     new_facets_lib      <- input$selectInput_newFacetsLib
-    new_dipLogR         <- if (with_dipLogR) as.numeric(input$textInput_newDipLogR) else NA_real_
+    new_dipLogR         <- if (with_dipLogR) as.numeric(dipLogR_raw) else NA_real_
 
     if (!is.null(selected_run$purity_run_cval)) {
       default_run_facets_version <- selected_run$purity_run_version[1]
@@ -5134,14 +5425,23 @@ function(input, output, session) {
       return(NULL)
     }
 
+    # "Does this parameter differ from the run we are refitting?" -- NA-safe.
+    # `new != run_value` returns NA when the run's .out carried no such value,
+    # and ifelse(NA, ...) yields NA, which paste0 embedded as the literal "NA"
+    # (producing dir names like refit_c50_pc100NANANA).
+    differs <- function(new_value, run_value) {
+      if (length(run_value) == 0 || is.na(run_value[1])) return(TRUE)
+      !identical(as.character(new_value), as.character(run_value[1]))
+    }
+
     name_tag <- paste0(
       "c{new_hisens_c}_pc{new_purity_c}",
       ifelse(with_dipLogR, "_diplogR_{new_dipLogR}", ""),
-      ifelse(new_purity_m != selected_run$purity_run_nhet, "_pm{new_purity_m}", ""),
-      ifelse(new_hisens_m != selected_run$hisens_run_nhet, "_m{new_hisens_m}", ""),
-      ifelse(new_normal_depth != selected_run$purity_run_ndepth, "_nd{new_normal_depth}", ""),
-      ifelse(new_snp_window_size != selected_run$purity_run_snp_nbhd, "_n{new_snp_window_size}", ""),
-      ifelse(new_facets_lib != selected_run$purity_run_version, "_v{facets_version_to_use}", "")
+      ifelse(differs(new_purity_m, selected_run$purity_run_nhet), "_pm{new_purity_m}", ""),
+      ifelse(differs(new_hisens_m, selected_run$hisens_run_nhet), "_m{new_hisens_m}", ""),
+      ifelse(differs(new_normal_depth, selected_run$purity_run_ndepth), "_nd{new_normal_depth}", ""),
+      ifelse(differs(new_snp_window_size, selected_run$purity_run_snp_nbhd), "_n{new_snp_window_size}", ""),
+      ifelse(differs(new_facets_lib, selected_run$purity_run_version), "_v{facets_version_to_use}", "")
     )
 
     name_tag   <- glue(name_tag)
@@ -5181,50 +5481,92 @@ function(input, output, session) {
     # If the switch is on, submit as a batch job.
     if (input$use_remote_refit_switch) {
 
-      # Validate scheduler resource inputs (still used in legacy non-VM mode)
-      if (!grepl("^\\d{1,2}:\\d{2}$", input$textInput_timeLimit)) {
-        showNotification("Time Limit must be in the format H:MM.", type = "error")
-        return(NULL)
-      }
+      # Validate scheduler resource inputs. These drive the LSF bsub line on the
+      # non-VM path only -- the VM path queues a plain script, so a malformed
+      # value there used to abort a refit over a field that is never read.
+      if (!is_vm_mode()) {
+        if (!grepl("^\\d{1,2}:\\d{2}$", input$textInput_timeLimit)) {
+          showNotification("Time Limit must be in the format H:MM.", type = "error")
+          return(NULL)
+        }
 
-      if (!grepl("^\\d+$", input$textInput_cores)) {
-        showNotification("Num. Cores must be an integer.", type = "error")
-        return(NULL)
-      }
+        if (!grepl("^\\d+$", input$textInput_cores)) {
+          showNotification("Num. Cores must be an integer.", type = "error")
+          return(NULL)
+        }
 
-      if (!grepl("^\\d+$", input$textInput_memory)) {
-        showNotification("Memory must be an integer.", type = "error")
-        return(NULL)
+        if (!grepl("^\\d+$", input$textInput_memory)) {
+          showNotification("Memory must be an integer.", type = "error")
+          return(NULL)
+        }
       }
 
       if (is_vm_mode()) {
-        ## VM mode: write a .sh file into /data1/core005/facetflow/fp/queue and chmod 775
+        ## VM mode: drop a .sh into the refit queue, which the refit_manager
+        ## Nextflow listener picks up and runs. Paths come from the FP_IRIS_*
+        ## environment (set by facetflow); the literals below are the values that
+        ## were hardcoded here, kept as fallbacks so an unset environment
+        ## produces exactly the command it always did.
+        iris_rscript <- Sys.getenv(
+          "FP_IRIS_RSCRIPT",
+          "/admin/software/spack/0.23/spack/opt/spack/linux-rhel8-icelake/gcc-12.2.0/r-3.6.3-x2oll3y4cue6hqe7iijy5l72xycngdxo/bin/Rscript")
+        iris_wrapper <- Sys.getenv("FP_IRIS_WRAPPER",
+                                   "/data1/core005/facetflow/facets-suite/run-facets-wrapper.R")
+        iris_rlibs   <- Sys.getenv("FP_IRIS_RLIBS", "/data1/core005/facetflow/Rlib")
+        iris_queue   <- Sys.getenv("FP_IRIS_REFIT_QUEUE", "/data1/core005/facetflow/fp/queue/")
 
-        # Build the Rscript command we want to run on the cluster
-        refit_cmd <- glue(paste0(
-          '/admin/software/spack/0.23/spack/opt/spack/linux-rhel8-icelake/gcc-12.2.0/r-3.6.3-x2oll3y4cue6hqe7iijy5l72xycngdxo/bin/Rscript ',
-          '/data1/core005/facetflow/facets-suite/run-facets-wrapper.R ',
-          '--facets-lib-path /data1/core005/facetflow/Rlib ',
-          '--counts-file {counts_file_name} ',
-          '--sample-id {sample_id} ',
-          '--snp-window-size {new_snp_window_size} ',
-          '--normal-depth {new_normal_depth} ',
-          ifelse(with_dipLogR, '--dipLogR {new_dipLogR} ', ''),
-          '--min-nhet {new_hisens_m} ',
-          '--purity-min-nhet {new_purity_m} ',
-          '--seed 100 ',
-          '--cval {new_hisens_c} --purity-cval {new_purity_c} --legacy-output T -e ',
-          '--genome hg19 --directory {refit_dir} '
-        ))
-
-        # Use the same base name as the refit_cmd_file, but in the fp queue
         base_refit_name <- basename(refit_cmd_file)
-        queue_file_path <- glue('/data1/core005/facetflow/fp/queue/refit_{base_refit_name}')
 
-        writeLines(refit_cmd, con = queue_file_path)
-        system(glue('chmod 775 {queue_file_path}'))
+        if (isTRUE(values$is_2n)) {
+          ## 2n refits are a SEPARATE path: a different wrapper (facets-suite-2n),
+          ## reference normal pools, a pair-level counts file, and a split step
+          ## afterwards. Nothing here touches the standard command above.
+          refit_2n <- build_refit_cmd_2n(
+            sample_id      = sample_id,
+            pair_dir       = dirname(sub('/+$', '', run_path)),
+            fit_class      = values$fit_class,
+            refit_tag      = name_tag,
+            with_dipLogR   = with_dipLogR,
+            new_dipLogR    = new_dipLogR,
+            min_nhet       = new_hisens_m,
+            purity_min_nhet= new_purity_m,
+            snp_window     = new_snp_window_size,
+            normal_depth   = new_normal_depth,
+            counts_file    = counts_file_name)
 
-        # refit_cmd now represents the actual Rscript command for logging/printing later
+          if (!is.null(refit_2n$error)) {
+            showModal(modalDialog(title = "Cannot submit 2n refit", refit_2n$error))
+            return(NULL)
+          }
+
+          refit_cmd       <- refit_2n$script
+          refit_dir       <- refit_2n$refit_dirs
+          base_refit_name <- sub('\\.sh$', '_2n.sh', base_refit_name)
+          refit_note      <- paste(c(refit_note, refit_2n$note), collapse = " ")
+        } else {
+          refit_cmd <- glue(paste0(
+            '{iris_rscript} ',
+            '{iris_wrapper} ',
+            '--facets-lib-path {iris_rlibs} ',
+            '--counts-file {counts_file_name} ',
+            '--sample-id {sample_id} ',
+            '--snp-window-size {new_snp_window_size} ',
+            '--normal-depth {new_normal_depth} ',
+            ifelse(with_dipLogR, '--dipLogR {new_dipLogR} ', ''),
+            '--min-nhet {new_hisens_m} ',
+            '--purity-min-nhet {new_purity_m} ',
+            '--seed 100 ',
+            '--cval {new_hisens_c} --purity-cval {new_purity_c} --legacy-output T -e ',
+            '--genome hg19 --directory {refit_dir} '
+          ))
+        }
+
+        queue_file_path <- file.path(sub('/+$', '', iris_queue),
+                                     paste0('refit_', base_refit_name))
+
+        if (!queue_refit_job(queue_file_path, refit_cmd)) return(NULL)
+
+        # refit_cmd now represents the actual command for logging/printing later
 
       } else {
         ## Non-VM: legacy LSF path via queue file (unchanged)
@@ -5272,8 +5614,7 @@ function(input, output, session) {
         # Write the command to our listener queue directory.
         refit_cmd <- lsf_cmd
         output_file_path <- glue('{input$mount_refit_path}queue/refit_{base_refit_name}')
-        writeLines(refit_cmd, con = output_file_path)
-        system(glue('chmod 775 {output_file_path}'))
+        if (!queue_refit_job(output_file_path, refit_cmd)) return(NULL)
       }
     }
 

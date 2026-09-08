@@ -1,0 +1,7 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+# Stale hand-made scratch snapshots of the app sources; they shadow real greps.
+inst/application/*copy*.txt

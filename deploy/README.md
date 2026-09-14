@@ -90,7 +90,7 @@ Then add to `.env`:
 
 ```
 FACETS_LOG_DIR=/data1/core005/facetflow_dev/logs
-FACETS_IRIS_2N_SIF=/data1/core006/ccs/shared/resources/impact_2n/containers/facets_2n_cadence_0.1.8.sif
+FACETS_IRIS_2N_SIF=/data1/core006/resources/singularity_image_library/price0416-facets_2n_cadence-0.1.8.img
 FACETS_IRIS_2N_REF_LIB_DIR=/data1/core006/ccs/shared/resources/impact_2n/unmatched_pools
 ```
 
@@ -117,12 +117,30 @@ Refit submission is unchanged: the app drops a `.sh` into the queue and
 `refit_manager.nf` runs it. A 2n job just needs a self-contained command, so it
 runs the facets-suite-2n wrapper inside a pinned container.
 
+Pull it into the CADENCE singularity library, using the name Nextflow expects, so
+one image serves both the pipeline and the app. `conf/iris.config:20` sets
+`singularity_library = '/data1/core006/resources/singularity_image_library'`
+(wired to `libraryDir` at :62), and Nextflow looks images up there by a name
+mangled from the container URI: `docker://price0416/facets_2n_cadence:0.1.8`
+becomes `price0416-facets_2n_cadence-0.1.8.img`. An arbitrarily named `.sif` in
+that directory is invisible to Nextflow, which then pulls a duplicate into
+`cacheDir` -- several such strays already sit there unused.
+
+The `env -u` prefix is required: the JFrog `SINGULARITY_DOCKER_*` credentials are
+set in the shell environment and get sent to docker.io, which broke remote pulls
+during the 2026-09-08 session. Check the bot's cron environment for the same.
+
 ```bash
-# the container the queued 2n job runs under
-mkdir -p /data1/core006/ccs/shared/resources/impact_2n/containers
-singularity pull \
-  /data1/core006/ccs/shared/resources/impact_2n/containers/facets_2n_cadence_0.1.8.sif \
+# the container the queued 2n job runs under, named for Nextflow's libraryDir
+env -u SINGULARITY_DOCKER_USERNAME -u SINGULARITY_DOCKER_PASSWORD \
+  singularity pull \
+  /data1/core006/resources/singularity_image_library/price0416-facets_2n_cadence-0.1.8.img \
   docker://price0416/facets_2n_cadence:0.1.8
+
+# confirm it carries this release (expect facetsPreview 3.3.0, facetsSuite 3.0.0)
+singularity exec \
+  /data1/core006/resources/singularity_image_library/price0416-facets_2n_cadence-0.1.8.img \
+  Rscript -e 'cat(as.character(packageVersion("facetsPreview")), as.character(packageVersion("facetsSuite")), "\n")'
 
 # the facets2n reference normal pools (18 files: cv3/4/5/6/7 solid + heme)
 cp <cadence>/impact_2n/nf_impact/lib/cv*_reference_normals_r1.snp_pileup.gz \
@@ -158,4 +176,4 @@ pushing:
    ```
 2. Bump the container refs in the `impact_2n/nf_impact` modules.
 3. Re-run the fixture suites in-image.
-4. Pull the 0.1.8 `.sif` for step 3 above.
+4. Pull the 0.1.8 image into the singularity library for step 3 above.

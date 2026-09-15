@@ -3257,9 +3257,9 @@ function(input, output, session) {
     # Resolve per pane so an 'Ultra' view renders the nested ultra run; identity
     # for Purity/Hisens, i.e. unchanged for standard samples.
     view1 <- resolve_view_run_2n(values$sample_runs, input$selectInput_selectFit,
-                                 view_fit_type)
+                                 input$radioGroupButton_fitType)
     view2 <- resolve_view_run_2n(values$sample_runs_compare, input$selectInput_selectFit_compare,
-                                 view_fit_type_compare)
+                                 input$radioGroupButton_fitType_compare)
     selected_run          <- view1$run
     selected_run_compare  <- view2$run
     view_fit_type         <- view1$type
@@ -4130,14 +4130,14 @@ function(input, output, session) {
     }
 
     view1 <- resolve_view_run_2n(values$sample_runs, input$selectInput_selectFit,
-                                 view_fit_type)
+                                 input$radioGroupButton_fitType)
     selected_run  <- view1$run
     view_fit_type <- view1$type
 
     if(input$compareFitsCheck)
     {
       view2 <- resolve_view_run_2n(values$sample_runs_compare, input$selectInput_selectFit_compare,
-                                   view_fit_type_compare)
+                                   input$radioGroupButton_fitType_compare)
       selected_run_compare  <- view2$run
       view_fit_type_compare <- view2$type
     }

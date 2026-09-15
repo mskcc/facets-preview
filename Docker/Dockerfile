@@ -36,7 +36,7 @@ RUN apt-get -y update && apt-get upgrade -y && apt-get install -y --fix-missing 
 RUN apt-get install -y xdg-utils --fix-missing
 RUN apt-get install -y inotify-tools
 
-ENV FORCE_REBUILD_R=13
+ENV FORCE_REBUILD_R=15
 
 #RUN R -e "install.packages(c('Cairo','argparse','gridExtra', 'binom', 'BiocManager', 'diptest', 'egg','shiny', 'shinyWidgets', 'shinyjs', 'rhandsontable', 'doParallel', 'configr', 'R.utils', 'shinyFiles', 'here', 'dplyr', 'httr', 'jsonlite'), repos='http://cran.us.r-project.org')" \
 #	&& R -e "BiocManager::install('rtracklayer')"
@@ -48,7 +48,7 @@ RUN R -q -e "install.packages('remotes', repos='https://cloud.r-project.org')" \
  && R -q -e "remotes::install_version('bslib', version='0.7.0', repos='https://cloud.r-project.org')"
 
 # Insert this dummy operation to invalidate the cache for subsequent steps
-ENV FORCE_REBUILD_FACETS=88
+ENV FORCE_REBUILD_FACETS=89
 
 # Install FACETS, pctGCdata and facets-suite
 RUN cd /tmp \

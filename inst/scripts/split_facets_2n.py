@@ -17,10 +17,15 @@ the shared-file handling are kept identical so a refit is indistinguishable on
 disk from a pipeline-produced fit.
 
 Usage:
-    split_facets_2n.py <sample_id> <staging_dir> <pair_dir> <fit_name>
+    split_facets_2n.py <sample_id> <staging_dir> <pair_dir> <fit_name> [--only <class>]
 
 <staging_dir> is the flat directory the wrapper wrote; its files are moved into
 <pair_dir>/<class>/<fit_name>/ and the emptied staging dir is removed.
+
+--only clinical|research keeps that class's fits and DELETES the other class's
+files. The wrapper always produces the research fits and can only ADD the
+clinical ones, so an app refit of a single class has to discard the surplus
+here; the kept class still lands exactly as a pipeline-made fit would.
 """
 
 import os
@@ -70,12 +75,16 @@ def place(src, dest_dir, dest_name):
         rewrite_out_tag(dest)
 
 
-def handle_file(fname, src_dir, pair_dir, fit_name):
+def handle_file(fname, src_dir, pair_dir, fit_name, only=None):
     src = os.path.join(src_dir, fname)
+    keep = ('clinical', 'research') if only is None else (only,)
 
     # Per-fit run files (Rdata/out/cncf/rds/png/seg/...).
     for tok, cls, nested, repl in RUN_TOKENS:
         if tok in fname:
+            if cls not in keep:
+                os.remove(src)
+                return
             dest_dir = os.path.join(pair_dir, cls, fit_name)
             if nested:
                 dest_dir = os.path.join(dest_dir, 'ultra')
@@ -86,12 +95,15 @@ def handle_file(fname, src_dir, pair_dir, fit_name):
     for cls in ('clinical', 'research'):
         infix = '.' + cls + '.'
         if infix in fname:
+            if cls not in keep:
+                os.remove(src)
+                return
             place(src, os.path.join(pair_dir, cls, fit_name), fname.replace(infix, '.'))
             return
 
-    # Shared (class-agnostic) files -> copy into both class fit dirs.
+    # Shared (class-agnostic) files -> copy into every kept class fit dir.
     if 'facets2n_normal_selection' in fname:
-        for cls in ('clinical', 'research'):
+        for cls in keep:
             d = os.path.join(pair_dir, cls, fit_name)
             os.makedirs(d, exist_ok=True)
             shutil.copy2(src, os.path.join(d, fname))
@@ -102,20 +114,26 @@ def handle_file(fname, src_dir, pair_dir, fit_name):
 
 
 def main():
-    if len(sys.argv) != 5:
+    argv = sys.argv[1:]
+    only = None
+    if len(argv) == 6 and argv[4] == '--only':
+        only = argv[5]
+        argv = argv[:4]
+    if len(argv) != 4 or only not in (None, 'clinical', 'research'):
         sys.exit(__doc__)
 
-    sample_id, staging_dir, pair_dir, fit_name = sys.argv[1:5]
+    sample_id, staging_dir, pair_dir, fit_name = argv
     staging_dir = staging_dir.rstrip('/')
     pair_dir = pair_dir.rstrip('/')
 
     if not os.path.isdir(staging_dir):
         sys.exit("staging dir not visible: " + staging_dir)
 
-    log("splitting %s -> %s/{clinical,research}/%s" % (staging_dir, pair_dir, fit_name))
+    classes = only if only else '{clinical,research}'
+    log("splitting %s -> %s/%s/%s" % (staging_dir, pair_dir, classes, fit_name))
     for fname in sorted(os.listdir(staging_dir)):
         if os.path.isfile(os.path.join(staging_dir, fname)):
-            handle_file(fname, staging_dir, pair_dir, fit_name)
+            handle_file(fname, staging_dir, pair_dir, fit_name, only)
 
     # Drop the now-emptied staging dir; leave it if anything remained.
     try:

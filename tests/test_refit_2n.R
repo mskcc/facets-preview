@@ -113,5 +113,111 @@ check("the ultra .out TAG is rewritten too",
       identical(trimws(ultra_tag), paste0("# TAG = ", tag, "_hisens")))
 check("the flat staging dir is removed once emptied", !dir.exists(staging))
 
+## ---------------------------------------------------------------------------
+## 3. Single-class split (--only): what an app refit of one class produces
+## ---------------------------------------------------------------------------
+
+make_staging <- function(pair, fit, tag) {
+  staging <- file.path(pair, fit)
+  dir.create(staging, recursive = TRUE)
+  for (tok in c("_clinical_purity", "_clinical_hisens", "_research_purity",
+                "_research_hisens", "_research_ultra_hisens")) {
+    invisible(file.create(file.path(staging, paste0(tag, tok, ".Rdata"))))
+    writeLines(c("# INPUT PARAMETERS GIVEN", paste0("# TAG = ", tag, tok)),
+               file.path(staging, paste0(tag, tok, ".out")))
+  }
+  invisible(file.create(file.path(staging, paste0(tag, ".clinical.gene_level.txt"))))
+  invisible(file.create(file.path(staging, paste0(tag, ".research.gene_level.txt"))))
+  invisible(file.create(file.path(staging, paste0(tag, ".facets2n_normal_selection.txt"))))
+  staging
+}
+run_split <- function(pair, fit, tag, only = NULL) {
+  system2("python3", c(shQuote(splitter), shQuote(tag), shQuote(file.path(pair, fit)),
+                       shQuote(pair), shQuote(fit), if (!is.null(only)) c("--only", only)),
+          stdout = NULL, stderr = NULL)
+}
+
+pair_r <- tempfile("refit2n_only_r_"); staging_r <- make_staging(pair_r, fit, tag)
+check("--only research runs cleanly", run_split(pair_r, fit, tag, "research") == 0)
+check("--only research: research subtree present with nested ultra",
+      file.exists(file.path(pair_r, "research", fit, paste0(tag, "_purity.Rdata"))) &&
+        file.exists(file.path(pair_r, "research", fit, "ultra", paste0(tag, "_hisens.Rdata"))))
+check("--only research: no clinical subtree is created",
+      !dir.exists(file.path(pair_r, "clinical")))
+check("--only research: the shared marker lands in research only",
+      file.exists(file.path(pair_r, "research", fit, paste0(tag, ".facets2n_normal_selection.txt"))))
+check("--only research: the staging dir is emptied and removed", !dir.exists(staging_r))
+
+pair_c <- tempfile("refit2n_only_c_"); staging_c <- make_staging(pair_c, fit, tag)
+check("--only clinical runs cleanly", run_split(pair_c, fit, tag, "clinical") == 0)
+check("--only clinical: clinical subtree present",
+      all(file.exists(file.path(pair_c, "clinical", fit,
+                                paste0(tag, c("_purity.Rdata", "_hisens.Rdata", ".gene_level.txt",
+                                              ".facets2n_normal_selection.txt"))))))
+check("--only clinical: research fits (incl. ultra) are discarded, not placed",
+      !dir.exists(file.path(pair_c, "research")))
+check("--only clinical: the staging dir is emptied and removed", !dir.exists(staging_c))
+
+pair_b <- tempfile("refit2n_only_b_"); staging_b <- make_staging(pair_b, fit, tag)
+check("--only with an unknown class is rejected and leaves the staging dir alone",
+      run_split(pair_b, fit, tag, "bogus") != 0 && dir.exists(staging_b))
+
+## ---------------------------------------------------------------------------
+## 4. build_refit_cmd_2n: one class per refit, flags keyed by class
+## ---------------------------------------------------------------------------
+
+start <- grep("^  build_refit_cmd_2n <- function", src)
+stopifnot(length(start) == 1)
+end   <- start + which(src[(start + 1):length(src)] == "  }")[1]
+eval(parse(text = paste(src[start:end], collapse = "\n")), envir = globalenv())
+
+# The server looks the splitter up in the installed package first; force the
+# in-repo fallback so the test pins THIS tree's script.
+system.file <- function(...) ""
+old_wd <- setwd(file.path(repo, "inst", "application"))
+sif <- tempfile("fake_", fileext = ".sif"); invisible(file.create(sif))
+Sys.setenv(FP_IRIS_2N_SIF = sif, FP_IRIS_2N_REF_LIB_DIR = lib)
+
+ptag <- "P-0000000-T01-IM6_P-0000000-N01-IM6"
+pair <- file.path(tempfile("refit2n_cmd_"), ptag); dir.create(pair, recursive = TRUE)
+counts <- file.path(pair, paste0("countsMerged____", ptag, ".dat.gz"))
+
+r_nocounts <- build_refit_cmd_2n(ptag, pair, "research", "c50_pc100", FALSE, NA, 25, 15, 250, 35,
+                                 NULL, 100, 50)
+check("no counts file for the pair is an error", !is.null(r_nocounts$error))
+
+invisible(file.create(counts))
+rr <- build_refit_cmd_2n(ptag, pair, "research", "c50_pc100_diplogR_0.1", TRUE, 0.1, 25, 15, 250, 35,
+                         NULL, 100, 50)
+check("research: builds without error", is.null(rr$error))
+sr <- paste(rr$script, collapse = "\n")
+check("research: --clinical is NOT passed", !grepl("--clinical", sr, fixed = TRUE))
+check("research: dipLogR goes to the research flag", grepl("--dipLogR 0.1 ", sr, fixed = TRUE))
+check("research: cvals go to the research flags",
+      grepl("--research-purity-cval 100 --research-hisens-cval 50", sr, fixed = TRUE))
+check("research: the split keeps research only", grepl("--only research", sr, fixed = TRUE))
+check("research: the pair-level counts file is used", grepl(counts, sr, fixed = TRUE))
+check("research: exactly one refit dir, under research/",
+      identical(rr$refit_dirs, file.path(pair, "research", "refit_c50_pc100_diplogR_0.1")))
+
+rc <- build_refit_cmd_2n(ptag, pair, "clinical", "c75_pc150_diplogR_-0.2", TRUE, -0.2, 25, 15, 250, 35,
+                         pair,   # a DIRECTORY as counts file must not be accepted
+                         150, 75)
+check("clinical: builds without error", is.null(rc$error))
+sc <- paste(rc$script, collapse = "\n")
+check("clinical: --clinical is passed", grepl("--legacy-output --clinical --MandUnormal", sc, fixed = TRUE))
+check("clinical: dipLogR goes to the clinical flag", grepl("--clinical-dipLogR -0.2 ", sc, fixed = TRUE))
+check("clinical: the research dipLogR flag is absent", !grepl(" --dipLogR ", sc, fixed = TRUE))
+check("clinical: cvals go to the clinical flags",
+      grepl("--clinical-purity-cval 150 --clinical-hisens-cval 75", sc, fixed = TRUE))
+check("clinical: the split keeps clinical only", grepl("--only clinical", sc, fixed = TRUE))
+check("clinical: a directory passed as counts file falls back to the pair's file",
+      grepl(paste0("--counts-file ", counts), sc, fixed = TRUE))
+check("clinical: exactly one refit dir, under clinical/",
+      identical(rc$refit_dirs, file.path(pair, "clinical", "refit_c75_pc150_diplogR_-0.2")))
+check("the note names the class subtree the fits go to",
+      grepl("clinical fits will be written to", rc$note, fixed = TRUE))
+setwd(old_wd)
+
 cat("\n", n_pass, "passed,", n_fail, "failed\n")
 if (n_fail > 0) quit(status = 1)

@@ -111,6 +111,9 @@ init_fp_paths <- function() {
       tempo  = cfg$tempo_repo_path  %||% ""
     )
     options("fp.default_repo_paths" = opts_repo)
+    # The "Add samples by DMP-ID" repository dropdown; global.config may
+    # override any base with repo_base_<key> = /path.
+    options("fp.vm_repositories" = vm_repository_registry(if (is.list(cfg)) cfg else list()))
 
     message("[FP] VM init: repo defaults = ", paste(
       sprintf("impact=%s, tcga=%s, tempo=%s", opts_repo$impact, opts_repo$tcga, opts_repo$tempo),
@@ -152,6 +155,11 @@ get_vm_repo_defaults <- function() {
   if (is.null(d)) list(impact="", tcga="", tempo="") else d
 }
 
+get_vm_repositories <- function() {
+  r <- getOption("fp.vm_repositories", default = NULL)
+  if (is.null(r)) vm_repository_registry() else r
+}
+
 # Identity translator for VM mode; passthrough for now
 vm_identity_path <- function(p) {
   if (is_vm_mode()) return(p %||% "")
@@ -176,7 +184,7 @@ function(input, output, session) {
                            is_2n = FALSE, is_2n_compare = FALSE,
                            fit_class = NA_character_, fit_class_compare = NA_character_,
                            pair_paths = NULL, pair_paths_compare = NULL,
-                           pair_index_2n = NULL,
+                           pair_index_2n = NULL, manifest_extra = NULL,
                            geneLevel_note = "", armLevel_note = "")
   output$verbatimTextOutput_sessionInfo <- renderPrint({print(sessionInfo())})
   output$verbatimTextOutput_signAs <- renderText({paste0(system('whoami', intern = T))})
@@ -192,8 +200,6 @@ function(input, output, session) {
   # showing so the two can be swapped and compared independently. Every 2n
   # behavior below is gated on these flags, so a standard sample's flow is
   # unchanged.
-  ignore_class_change <- reactiveVal(FALSE)
-  ignore_class_change_compare <- reactiveVal(FALSE)
 
   vm_prefilled <- reactiveVal(FALSE)
 
@@ -646,11 +652,14 @@ function(input, output, session) {
   # Build the queued shell script for a 2n refit. Deliberately independent of the
   # standard refit command: a different wrapper (facets-suite-2n), reference
   # normals, a pair-level counts file, and a post-run split into the class
-  # subtrees. Returns list(script=, refit_dirs=, note=) or list(error=).
+  # subtree. Only the class being viewed is refit: the wrapper always runs the
+  # research fits and can only ADD the clinical ones, so a clinical refit runs
+  # both and the split step discards the research surplus.
+  # Returns list(script=, refit_dirs=, note=) or list(error=).
   build_refit_cmd_2n <- function(sample_id, pair_dir, fit_class, refit_tag,
                                  with_dipLogR, new_dipLogR, min_nhet,
                                  purity_min_nhet, snp_window, normal_depth,
-                                 counts_file) {
+                                 counts_file, purity_cval, hisens_cval) {
     sif <- Sys.getenv("FP_IRIS_2N_SIF", "")
     if (!nzchar(sif)) {
       return(list(error = paste0(
@@ -674,8 +683,9 @@ function(input, output, session) {
     if (!is.null(refs$error)) return(list(error = refs$error))
 
     # The counts file is a property of the PAIR, not of a class subtree.
-    if (is.null(counts_file) || is.na(counts_file) || !nzchar(counts_file) ||
-        !file.exists(counts_file)) {
+    # (file.exists is TRUE for a directory, hence the explicit dir.exists.)
+    if (is.null(counts_file) || length(counts_file) != 1 || is.na(counts_file) ||
+        !nzchar(counts_file) || !file.exists(counts_file) || dir.exists(counts_file)) {
       cand <- file.path(pair_dir, paste0("countsMerged____", pair_tag, ".dat.gz"))
       if (!file.exists(cand)) {
         return(list(error = paste0(
@@ -685,22 +695,24 @@ function(input, output, session) {
       counts_file <- cand
     }
 
-    # A refit runs BOTH classes in one wrapper invocation (that is how the 5-fit
-    # model works), so a manual dipLogR is applied to the class being viewed and
-    # the other class keeps its facets-selected value.
+    # Per-class flags. The wrapper keys dipLogR and cvals by class:
+    # -d/--dipLogR and --research-*-cval drive the research fits,
+    # --clinical-dipLogR and --clinical-*-cval the clinical ones. The ultra fit
+    # keeps the wrapper's default cval.
+    is_clinical <- identical(fit_class, "clinical")
+    class_flag  <- if (is_clinical) "--clinical " else ""
     diplogr_flag <- ""
-    note <- ""
     if (isTRUE(with_dipLogR)) {
-      if (identical(fit_class, "clinical")) {
-        diplogr_flag <- glue("--clinical-dipLogR {new_dipLogR} ")
-        note <- paste0("dipLogR ", new_dipLogR, " was applied to the clinical fits; ",
-                       "the research fits use their facets-selected dipLogR.")
-      } else {
-        diplogr_flag <- glue("--dipLogR {new_dipLogR} ")
-        note <- paste0("dipLogR ", new_dipLogR, " was applied to the research fits; ",
-                       "the clinical fits use their facets-selected dipLogR.")
-      }
+      diplogr_flag <- if (is_clinical) glue("--clinical-dipLogR {new_dipLogR} ")
+                      else             glue("--dipLogR {new_dipLogR} ")
     }
+    cval_flags <- if (is_clinical) {
+      glue("--clinical-purity-cval {purity_cval} --clinical-hisens-cval {hisens_cval} ")
+    } else {
+      glue("--research-purity-cval {purity_cval} --research-hisens-cval {hisens_cval} ")
+    }
+    note <- paste0("The ", fit_class, " fits will be written to ",
+                   file.path(pair_dir, fit_class, paste0("refit_", refit_tag)), ".")
 
     refit_name  <- paste0("refit_", refit_tag)
     staging_dir <- file.path(pair_dir, refit_name)
@@ -722,7 +734,7 @@ function(input, output, session) {
     wrapper_cmd <- glue(paste0(
       'singularity exec {bind_flags} {sif} ',
       '/usr/bin/facets-suite/run-facets-wrapper.R ',
-      '--everything --legacy-output --clinical --MandUnormal --refX ',
+      '--everything --legacy-output ', class_flag, '--MandUnormal --refX ',
       '--genome hg19 --seed 100 ',
       '--counts-file {counts_file} ',
       '--sample-id {pair_tag} ',
@@ -730,6 +742,7 @@ function(input, output, session) {
       '--normal-depth {normal_depth} ',
       '--min-nhet {min_nhet} ',
       '--purity-min-nhet {purity_min_nhet} ',
+      cval_flags,
       diplogr_flag,
       '--facets2n-lib-path /usr/local/lib/R/site-library ',
       '--reference-snp-pileup {refs$pileup} ',
@@ -738,8 +751,8 @@ function(input, output, session) {
       '--directory {staging_dir}'))
 
     # The wrapper emits one flat dir of class-infixed files; the splitter
-    # reshapes it into <pair>/{clinical,research}/<refit>/ (+ research ultra),
-    # exactly as the pipeline's SPLIT_FACETS_2N does.
+    # reshapes it into <pair>/<class>/<refit>/ (+ research ultra), exactly as
+    # the pipeline's SPLIT_FACETS_2N does, and discards the other class.
     script <- c(
       "#!/bin/bash",
       "set -euo pipefail",
@@ -748,21 +761,49 @@ function(input, output, session) {
       paste0("mkdir -p ", shQuote(staging_dir)),
       wrapper_cmd,
       "",
-      "# Reshape the flat 5-fit output into the clinical/research subtrees.",
+      paste0("# Reshape the flat output into the ", fit_class, " subtree."),
       paste0("SPLIT_SRC=$(mktemp /tmp/split_facets_2n_XXXXXX.py)"),
       "cat > \"$SPLIT_SRC\" <<'FP_SPLIT_EOF'",
       splitter_src,
       "FP_SPLIT_EOF",
       paste0("python3 \"$SPLIT_SRC\" ", shQuote(pair_tag), " ", shQuote(staging_dir),
-             " ", shQuote(pair_dir), " ", shQuote(refit_name)),
+             " ", shQuote(pair_dir), " ", shQuote(refit_name), " --only ", fit_class),
       "rm -f \"$SPLIT_SRC\"")
 
     list(script = script,
-         refit_dirs = file.path(pair_dir, c("clinical", "research"), refit_name),
+         refit_dirs = file.path(pair_dir, fit_class, refit_name),
          note = note)
   }
 
   # --- 2n helpers -------------------------------------------------------------
+  # shinyWidgets::updateRadioGroupButtons() re-renders the group whenever
+  # `choices` is passed, using ITS OWN defaults (status "default", not
+  # justified) instead of what ui.R declared -- so every choices update must
+  # restate the UI styling or the buttons turn grey and lose their width.
+  update_fit_type_buttons <- function(inputId, choices = NULL, selected = NULL) {
+    shinyWidgets::updateRadioGroupButtons(session, inputId, choices = choices, selected = selected,
+                                          status = "primary", size = "normal", justified = TRUE)
+  }
+  update_fit_class_buttons <- function(inputId, choices = NULL, selected = NULL) {
+    shinyWidgets::updateRadioGroupButtons(session, inputId, choices = choices, selected = selected,
+                                          status = "info", size = "sm", justified = TRUE)
+  }
+
+  # The run-type group is ONE DOM element reused across samples, so a choice
+  # set injected for a 2n sample (Ultra) survives into the next standard sample
+  # unless it is explicitly re-rendered. Track what is rendered per pane and
+  # re-render only on change: a standard-only session never leaves the UI's
+  # initial Purity/Hisens and keeps the original selected-only update.
+  rendered_fit_types <- list(main = c('Purity', 'Hisens'), compare = c('Purity', 'Hisens'))
+  push_fit_type_choices <- function(pane, choices, selected) {
+    inp <- if (identical(pane, "compare")) "radioGroupButton_fitType_compare" else "radioGroupButton_fitType"
+    if (identical(rendered_fit_types[[pane]], choices)) {
+      shinyWidgets::updateRadioGroupButtons(session, inp, selected = selected)
+    } else {
+      rendered_fit_types[[pane]] <<- choices
+      update_fit_type_buttons(inp, choices = choices, selected = selected)
+    }
+  }
   # Full authorization: the in-app full-access password. This is the ONLY gate on
   # the Ultra run type (FP_ACCESS_LEVEL is not consulted).
   authorized_full <- function() isTRUE(session_data$password_valid == 1)
@@ -820,18 +861,18 @@ function(input, output, session) {
   sync_fit_type_choices <- function(pane = "main") {
     is_cmp <- identical(pane, "compare")
     is_2n  <- if (is_cmp) values$is_2n_compare else values$is_2n
-    if (!isTRUE(is_2n)) return(invisible(NULL))
 
     runs <- if (is_cmp) values$sample_runs_compare else values$sample_runs
     fit  <- if (is_cmp) input$selectInput_selectFit_compare else input$selectInput_selectFit
-    if (is.null(fit) || fit == "Not selected") return(invisible(NULL))
 
-    inp <- if (is_cmp) "radioGroupButton_fitType_compare" else "radioGroupButton_fitType"
-    ch  <- fit_type_choices_2n(is_2n, authorized_full(), runs, fit)
+    # A standard pane (or no fit yet) always gets the base pair; this is what
+    # clears a stale Ultra left behind by a previous 2n sample.
+    ch <- if (is.null(fit) || fit == "Not selected") c('Purity', 'Hisens')
+          else fit_type_choices_2n(is_2n, authorized_full(), runs, fit)
     cur <- if (is_cmp) input$radioGroupButton_fitType_compare else input$radioGroupButton_fitType
     sel <- if (!is.null(cur) && cur %in% ch) cur else "Purity"
 
-    shinyWidgets::updateRadioGroupButtons(session, inp, choices = ch, selected = sel)
+    push_fit_type_choices(pane, ch, sel)
     invisible(NULL)
   }
 
@@ -846,19 +887,6 @@ function(input, output, session) {
     pp  <- if (is_cmp) values$pair_paths_compare else values$pair_paths
     cls <- if (is_cmp) values$fit_class_compare else values$fit_class
 
-    if (!is_cmp) {
-      # Explain the 2n refit semantics next to the refit controls.
-      if (isTRUE(is_2n) && !is.na(cls)) {
-        shinyjs::html("text_refitNote2n", paste0(
-          "2n sample: a refit regenerates both the clinical and research fits. ",
-          "A dipLogR entered here is applied to the ", cls, " fits (the class ",
-          "currently shown); the other class keeps its facets-selected dipLogR."))
-        shinyjs::show("div_refitNote2n")
-      } else {
-        shinyjs::hide("div_refitNote2n")
-      }
-    }
-
     if (!isTRUE(is_2n) || is.null(pp) || is.na(cls)) {
       shinyjs::hide(div_id)
       return(invisible(NULL))
@@ -868,10 +896,11 @@ function(input, output, session) {
     present <- fit_classes_2n()[!is.na(unlist(pp[fit_classes_2n()]))]
     choices <- setNames(present, tools::toTitleCase(present))
 
-    if (is_cmp) ignore_class_change_compare(TRUE) else ignore_class_change(TRUE)
-    shinyWidgets::updateRadioGroupButtons(session, inp_id,
-                                          choices = as.character(names(choices)),
-                                          selected = tools::toTitleCase(cls))
+    # Pushing the loaded class is a no-op for swap_fit_class by construction
+    # (it ignores a toggle event that names the class already loaded).
+    update_fit_class_buttons(inp_id,
+                             choices = as.character(names(choices)),
+                             selected = tools::toTitleCase(cls))
     shinyjs::show(div_id)
     invisible(NULL)
   }
@@ -959,6 +988,12 @@ function(input, output, session) {
   # Hide repo/edit sections in VM; keep visible in local
   observeEvent(TRUE, {
     if (!is_vm_mode()) return()
+
+    # VM only: the repository dropdown that scopes the DMP-ID loader.
+    reg <- get_vm_repositories()
+    updateSelectInput(session, "selectInput_vmRepository",
+                      choices = reg$label, selected = reg$label[1])
+    shinyjs::show("div_vmRepository")
 
     # Hide the whole UI blocks (make sure you added these ids in ui.R)
     for (sec in c("section_impact", "section_tempo", "section_tcga", "section_refit")) {
@@ -1217,6 +1252,10 @@ function(input, output, session) {
     # Process the cleaned manifest (split again by newline just to ensure consistency)
     manifest <- unlist(stringr::str_split(cleaned_text, "\n"))
 
+    # A 2n PAIR dir (from the repository loader or pasted by hand) loads as its
+    # default class subtree; class dirs and standard dirs pass through.
+    manifest <- vapply(manifest, resolve_2n_pair_dir, character(1), USE.NAMES = FALSE)
+
     #print("button_samplesInput-6")
 
 
@@ -1240,6 +1279,15 @@ function(input, output, session) {
     values$pair_index_2n <- pair_index_2n(manifest[is_2n_path])
     #print("button_samplesInput-6.5")
     values$manifest_metadata <- manifest_metadata
+
+    # VM: per-class best fits, reviewers and repository labels for the samples
+    # table. A SIDE table -- manifest_metadata's columns stay positional.
+    values$manifest_extra <- NULL
+    if (is_vm_mode() && nrow(manifest_metadata) > 0) {
+      progress$set(message = "Summarising reviews:", value = 0)
+      values$manifest_extra <- manifest_extra_vm(manifest_metadata, values$pair_index_2n,
+                                                 get_vm_repositories(), progress)
+    }
 
     #print("button_samplesInput-7")
 
@@ -1294,9 +1342,9 @@ function(input, output, session) {
           "path", "facets_suite_version", "facets_qc_version",
           "default_fit_qc", "review_status", "reviewed_fit_facets_qc",
           "reviewed_fit_use_purity", "reviewed_fit_use_edited_cncf",
-          "reviewer_set_purity", "reviewed_fit_date"  # keep this name consistent
-        )
-      )
+          "reviewer_set_purity", "reviewed_date"  # metadata_init_quick's name; a
+        )                                          # mismatch here appends a 12th
+      )                                            # column and shifts every header
 
       safe_bool <- function(x) {
         y <- suppressWarnings(as.logical(x))
@@ -1308,6 +1356,50 @@ function(input, output, session) {
       mm$reviewed_fit_use_edited_cncf <- safe_bool(mm$reviewed_fit_use_edited_cncf)
 
       gicon <- function(x) as.character(icon(x, lib = "glyphicon"))
+
+      # VM: repository + per-class best fit (with reviewer) + review state +
+      # best-fit purity/ploidy, joined from the side table by sample_id with
+      # match() so row order (and DT row indices) stay those of mm.
+      ex <- values$manifest_extra
+      if (is_vm_mode() && !is.null(ex) && is.data.frame(ex) && nrow(ex) > 0) {
+        ex <- ex[match(mm$sample_id, ex$sample_id), , drop = FALSE]
+        fit_cell <- function(fit, who) {
+          ifelse(is.na(fit) | !nzchar(fit), "\u2014",
+                 ifelse(is.na(who) | !nzchar(who), fit, paste0(fit, " (", who, ")")))
+        }
+        badge <- function(state) {
+          state <- ifelse(is.na(state) | !nzchar(state), "Unreviewed", state)
+          cls <- c("Human best" = "success", "AutoQC best" = "info",
+                   "Acceptable only" = "warning", "No fit" = "danger",
+                   "No fit (auto-qc)" = "danger", "Unreviewed" = "default")[state]
+          cls[is.na(cls)] <- "default"
+          sprintf('<span class="label label-%s">%s</span>', cls, state)
+        }
+        out <- data.frame(
+          sample_id     = mm$sample_id,
+          repository    = ex$repository,
+          review_status = mm$review_status,
+          clinical      = fit_cell(ex$clinical_best_fit, ex$clinical_reviewed_by),
+          research      = fit_cell(ex$research_best_fit, ex$research_reviewed_by),
+          state         = badge(ex$review_state),
+          purity        = round(suppressWarnings(as.numeric(ex$purity)), 3),
+          ploidy        = round(suppressWarnings(as.numeric(ex$ploidy)), 2),
+          reviewer_set_purity = mm$reviewer_set_purity,
+          reviewed_date = mm$reviewed_date,
+          stringsAsFactors = FALSE)
+        return(DT::datatable(
+          out,
+          selection = list(mode = "single",
+                           selected = if (is.null(values$dt_sel)) NULL else values$dt_sel),
+          colnames = c("Sample ID (tag)", "Repository", "Review Status",
+                       "Clinical Best Fit", "Research Best Fit", "Review state",
+                       "Purity", "Ploidy", "Reviewer purity", "Date Reviewed"),
+          options = list(pageLength = 20,
+                         columnDefs = list(list(className = "dt-center", targets = 0:9))),
+          rownames = FALSE,
+          escape = FALSE
+        ))
+      }
 
       out <- mm
       drop_cols <- intersect(c("path", "facets_suite_version", "facets_qc_version"), names(out))
@@ -2185,6 +2277,8 @@ function(input, output, session) {
 
       finalize_pane_2n("main")
       finalize_pane_2n("compare")
+      sync_fit_type_choices("main")
+      sync_fit_type_choices("compare")
 
       skipSampleChange(FALSE)
 
@@ -2429,12 +2523,6 @@ function(input, output, session) {
   swap_fit_class <- function(pane, chosen) {
     is_cmp <- identical(pane, "compare")
 
-    if (is_cmp) {
-      if (ignore_class_change_compare()) { ignore_class_change_compare(FALSE); return(invisible(NULL)) }
-    } else {
-      if (ignore_class_change()) { ignore_class_change(FALSE); return(invisible(NULL)) }
-    }
-
     is_2n <- if (is_cmp) values$is_2n_compare else values$is_2n
     if (!isTRUE(is_2n)) return(invisible(NULL))
 
@@ -2442,6 +2530,10 @@ function(input, output, session) {
     cur <- if (is_cmp) values$fit_class_compare else values$fit_class
     if (is.null(pp) || is.null(chosen)) return(invisible(NULL))
 
+    # The only event filter: a toggle event naming the class already loaded
+    # is ignored. Every programmatic push (finalize_pane_2n, the snap-back
+    # below) pushes exactly that class, so none of them can trigger a reload
+    # -- and there is no latch that a swallowed event could leave armed.
     target_class <- tolower(chosen)
     if (identical(target_class, cur)) return(invisible(NULL))
 
@@ -2450,9 +2542,7 @@ function(input, output, session) {
       showNotification(paste0("No ", target_class, " data for this sample."),
                        type = "error", duration = 5)
       # Snap the toggle back to the class actually loaded.
-      if (is_cmp) ignore_class_change_compare(TRUE) else ignore_class_change(TRUE)
-      shinyWidgets::updateRadioGroupButtons(
-        session,
+      update_fit_class_buttons(
         if (is_cmp) "radioGroupButton_fitClass_compare" else "radioGroupButton_fitClass",
         selected = tools::toTitleCase(cur))
       return(invisible(NULL))
@@ -2465,15 +2555,26 @@ function(input, output, session) {
     if (is_cmp) handleSampleChange_compare(sample_path_override = target)
     else        handleSampleChange(sample_path_override = target)
 
-    runs <- if (is_cmp) values$sample_runs_compare else values$sample_runs
-    if (!is.null(keep_fit) && keep_fit != "Not selected" &&
-        keep_fit %in% fit_choices_for_pane(runs)) {
-      updateSelectInput(session,
-                        if (is_cmp) "selectInput_selectFit_compare" else "selectInput_selectFit",
-                        selected = keep_fit)
+    # handleSampleChange lands on 'Not selected' whenever a fit was already
+    # selected, so re-select here: the same fit when the sibling class has it,
+    # else the pane's best/default fit -- and say so, rather than leaving a
+    # blank plot with no explanation.
+    runs      <- if (is_cmp) values$sample_runs_compare else values$sample_runs
+    sel_input <- if (is_cmp) "selectInput_selectFit_compare" else "selectInput_selectFit"
+    if (!is.null(keep_fit) && keep_fit != "Not selected") {
+      if (keep_fit %in% fit_choices_for_pane(runs)) {
+        updateSelectInput(session, sel_input, selected = keep_fit)
+      } else {
+        fallback <- if (is_cmp) values$show_fit_compare else values$show_fit
+        if (is.null(fallback) || is.na(fallback) || !nzchar(fallback)) fallback <- "Not selected"
+        updateSelectInput(session, sel_input, selected = fallback)
+        showNotification(sprintf("Fit '%s' has no %s counterpart; showing '%s'.",
+                                 keep_fit, target_class, fallback),
+                         type = "warning", duration = 6)
+      }
     }
 
-    finalize_pane_2n(pane)
+    # finalize_pane_2n already ran inside handleSampleChange.
     invisible(NULL)
   }
 
@@ -2600,6 +2701,9 @@ function(input, output, session) {
     # – we’re leaving your existing show/hide observers as-is
 
     finalize_pane_2n("main")
+    # The fit observer will not fire if the new sample sits on the same fit
+    # name as the old one, so reset the run-type choices here as well.
+    sync_fit_type_choices("main")
 
     set_default_countFile()
   }
@@ -2704,6 +2808,7 @@ function(input, output, session) {
     output$imageOutput_pngImage2 <- renderImage({ list(src = "", width = 0, height = 0) }, deleteFile = FALSE)
 
     finalize_pane_2n("compare")
+    sync_fit_type_choices("compare")
   }
 
 
@@ -2836,18 +2941,14 @@ function(input, output, session) {
     # keeps the single round-trip the hack above depends on; the flip below still
     # lands on Purity/Hisens, both of which are always present, so the snap-back
     # in the fitType observer fires exactly as it does for a standard sample.
-    if (isTRUE(values$is_2n)) {
-      shinyWidgets::updateRadioGroupButtons(
-        session, "radioGroupButton_fitType",
-        choices = fit_type_choices_2n(values$is_2n, authorized_full(),
-                                      values$sample_runs, input$selectInput_selectFit),
-        selected = if (is.null(input$radioGroupButton_fitType) ||
-                       input$radioGroupButton_fitType == 'Hisens') "Purity" else "Hisens")
-    } else if (is.null(input$radioGroupButton_fitType) || input$radioGroupButton_fitType == 'Hisens') {
-      shinyWidgets::updateRadioGroupButtons(session, "radioGroupButton_fitType", selected="Purity")
-    } else {
-      shinyWidgets::updateRadioGroupButtons(session, "radioGroupButton_fitType", selected="Hisens")
-    }
+    # Standard samples get the base pair back (clearing any Ultra left by a
+    # previous 2n sample); push_fit_type_choices only re-renders on change.
+    push_fit_type_choices(
+      "main",
+      fit_type_choices_2n(values$is_2n, authorized_full(),
+                          values$sample_runs, input$selectInput_selectFit),
+      if (is.null(input$radioGroupButton_fitType) ||
+          input$radioGroupButton_fitType == 'Hisens') "Purity" else "Hisens")
   })
 
 
@@ -2930,19 +3031,12 @@ function(input, output, session) {
     values$show_fit_type_compare = ifelse(!is.na(selected_run$purity_run_version[1]), 'Purity', 'Hisens')
 
     # 2n only: same Ultra treatment as the main pane (see above).
-    if (isTRUE(values$is_2n_compare)) {
-      shinyWidgets::updateRadioGroupButtons(
-        session, "radioGroupButton_fitType_compare",
-        choices = fit_type_choices_2n(values$is_2n_compare, authorized_full(),
-                                      values$sample_runs_compare,
-                                      input$selectInput_selectFit_compare),
-        selected = if (is.null(input$radioGroupButton_fitType_compare) ||
-                       input$radioGroupButton_fitType_compare == 'Hisens') "Purity" else "Hisens")
-    } else if (is.null(input$radioGroupButton_fitType_compare) || input$radioGroupButton_fitType_compare == 'Hisens') {
-      shinyWidgets::updateRadioGroupButtons(session, "radioGroupButton_fitType_compare", selected="Purity")
-    } else {
-      shinyWidgets::updateRadioGroupButtons(session, "radioGroupButton_fitType_compare", selected="Hisens")
-    }
+    push_fit_type_choices(
+      "compare",
+      fit_type_choices_2n(values$is_2n_compare, authorized_full(),
+                          values$sample_runs_compare, input$selectInput_selectFit_compare),
+      if (is.null(input$radioGroupButton_fitType_compare) ||
+          input$radioGroupButton_fitType_compare == 'Hisens') "Purity" else "Hisens")
   })
 
 
@@ -4822,47 +4916,55 @@ function(input, output, session) {
   })
 
 
+  # Where a sample's counts file lives. For a 2n sample the run row's path is
+  # the CLASS subtree (<pair>/research), but the counts file is a property of
+  # the pair and sits one level up, named after the pair tag. Standard samples
+  # resolve to themselves.
+  counts_search_dir <- function(run_path) {
+    id <- sample_identity_2n(run_path)
+    if (isTRUE(id$is_2n) && !is.na(id$pair_dir)) id$pair_dir else run_path
+  }
+
+  # list.files() also returns subdirectories, which used to let a fallback
+  # hand a directory (e.g. <class>/default) to the refit as its counts file.
+  regular_files <- function(paths) paths[nzchar(paths) & !dir.exists(paths)]
+
   set_default_countFile <- function() {
     selected_run <- get_selected_run(values$sample_runs)
 
     run_path <- selected_run$path[1]
     sample_id <- input$selectInput_selectSample
+    search_dir <- counts_search_dir(run_path)
 
     # Update the select counts file button.
-    roots <- c(current_run = run_path)
+    roots <- c(current_run = search_dir)
     shinyFiles::shinyFileChoose(input, "fileInput_pileup", roots = roots, filetypes = c('dat', 'gz'))
 
     # Try to find files that match the expected pattern for countsMerged files
-    counts_file_name <- glue::glue("{run_path}/countsMerged____{sample_id}.dat.gz")
+    counts_file_name <- glue::glue("{search_dir}/countsMerged____{sample_id}.dat.gz")
 
     if (file.exists(counts_file_name)) {
-      # Set the selected counts file path in the reactive value if the exact file exists
       selected_counts_file(counts_file_name)
     } else {
       # If no file matches the exact pattern, look for any file with "count" in the name
-      files_in_directory <- list.files(run_path, pattern = "count", full.names = TRUE, ignore.case = TRUE)
+      files_in_directory <- regular_files(list.files(search_dir, pattern = "count", full.names = TRUE, ignore.case = TRUE))
 
       if (length(files_in_directory) > 0) {
-        # Use the first matching file
         selected_counts_file(files_in_directory[1])
       } else {
-        # If no "count" file is found, look for any .gz file
-        gz_files_in_directory <- list.files(run_path, pattern = "\\.gz$", full.names = TRUE)
+        gz_files_in_directory <- regular_files(list.files(search_dir, pattern = "\\.gz$", full.names = TRUE))
 
         if (length(gz_files_in_directory) > 0) {
-          # Use the first .gz file if available
           selected_counts_file(gz_files_in_directory[1])
         } else {
-          # If no .gz file is found, use any file in the directory
-          all_files_in_directory <- list.files(run_path, full.names = TRUE)
+          all_files_in_directory <- regular_files(list.files(search_dir, full.names = TRUE))
 
           if (length(all_files_in_directory) > 0) {
-            # Use the first file in the directory as a fallback
             selected_counts_file(all_files_in_directory[1])
           }
 
           # Show a notification that no suitable counts files were found, at this point its the user's problem.
-          showNotification(paste0("No suitable countsMerged or .gz files found in the run directory at ",run_path), type = "warning")
+          showNotification(paste0("No suitable countsMerged or .gz files found in the run directory at ",search_dir), type = "warning")
         }
       }
     }
@@ -4903,7 +5005,7 @@ function(input, output, session) {
 
     # Check if the selected row has a valid path and is not NA
     if (!is.null(selected_run$path) && length(selected_run$path) > 0 && !is.na(selected_run$path[1])) {
-      run_path <- selected_run$path[1]  # Get the first path
+      run_path <- counts_search_dir(selected_run$path[1])  # pair dir for 2n, the run dir otherwise
       # Set up shinyFileChoose with the current run path as the root
       shinyFiles::shinyFileChoose(input, "fileInput_pileup", roots = c(current_run = run_path), session = session)
 
@@ -5053,6 +5155,39 @@ function(input, output, session) {
 
     # Split the input string by comma, tab, space, or newline into individual sample IDs
     sample_ids <- unlist(strsplit(impact_samples_input, "[,\t \n]+"))
+
+    # VM: the repository dropdown decides where ids are expanded. Bases already
+    # include the all/ bucket root; a 2n repository yields the PAIR dir, which
+    # the load step resolves to its default class subtree.
+    if (is_vm_mode()) {
+      reg   <- get_vm_repositories()
+      entry <- reg[reg$label == (input$selectInput_vmRepository %||% ""), , drop = FALSE]
+      if (nrow(entry) != 1) {
+        showNotification("Choose a repository first.", type = "error", duration = 5)
+        return(NULL)
+      }
+      if (!dir.exists(entry$base)) {
+        showNotification(paste0("Repository directory not found: ", entry$base),
+                         type = "error", duration = 8)
+        return(NULL)
+      }
+      found <- character()
+      for (sample_id in trimws(sample_ids)) {
+        if (!nzchar(sample_id)) next
+        r <- resolve_repo_sample_path(sample_id, entry$base)
+        if (!is.null(r$error)) {
+          showNotification(r$error, type = "error", duration = 5)
+          next
+        }
+        found <- c(found, r$path)
+      }
+      if (length(found) > 0) {
+        current_paths <- unlist(strsplit(input$textAreaInput_samplesInput, "[,\t \n]+"))
+        all_paths <- unique(c(current_paths, found))
+        updateTextAreaInput(session, "textAreaInput_samplesInput", value = paste(all_paths, collapse = "\n"))
+      }
+      return(NULL)
+    }
 
     # Check if remote_path_impact is not empty
     if (nzchar(session_data$remote_path_impact)) {
@@ -5532,7 +5667,9 @@ function(input, output, session) {
             purity_min_nhet= new_purity_m,
             snp_window     = new_snp_window_size,
             normal_depth   = new_normal_depth,
-            counts_file    = counts_file_name)
+            counts_file    = counts_file_name,
+            purity_cval    = new_purity_c,
+            hisens_cval    = new_hisens_c)
 
           if (!is.null(refit_2n$error)) {
             showModal(modalDialog(title = "Cannot submit 2n refit", refit_2n$error))

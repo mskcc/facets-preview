@@ -467,10 +467,8 @@ update_best_fit_status <- function(sample_id, sample_path) {
 
   # Determine if the sample has at least an acceptable fit; get the most recent review
   # and determine if the status is 'reviewed_best_fit' or 'reviewed_acceptable_fit'
-  best_fit <- (reviews %>%
-                 arrange(desc(date_reviewed)) %>%
-                 filter(review_status %in% c('reviewed_acceptable_fit',
-                                             'reviewed_best_fit')))$fit_name[1]
+  # (the rule lives in resolve_best_fit_standard so the samples table agrees).
+  best_fit <- resolve_best_fit_standard(reviews)
 
   # Load the facets_qc.txt file (first match found)
   facets_runs <- fread(qc_file[1])

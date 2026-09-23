@@ -1001,3 +1001,189 @@ load_samples_2n <- function(manifest, progress = NA) {
   }
   metadata
 }
+
+### ---------------------------------------------------------------------------
+### Pair-dir acceptance and the VM samples-table summary.
+### ---------------------------------------------------------------------------
+
+#' Resolve a 2n PAIR directory to its default class subtree.
+#'
+#' is_facets2n_sample() recognises a CLASS dir (<pair>/research). A pair dir
+#' pasted into the load manifest -- or produced by the VM repository loader --
+#' would otherwise fall into the standard loader and yield an empty row. A
+#' class dir, a standard sample dir, or anything else is returned unchanged.
+#'
+#' @param p a directory path
+#' @return the default class dir for a pair dir, else `p`
+#' @export resolve_2n_pair_dir
+resolve_2n_pair_dir <- function(p) {
+  if (is.null(p) || length(p) != 1 || is.na(p) || !nzchar(p)) return(p)
+  if (is_facets2n_sample(p)) return(p)
+  clean <- sub('/+$', '', p)
+  class_dir <- function(k) {
+    d <- file.path(clean, k)
+    if (dir.exists(d) && is_facets2n_sample(d)) d else NA_character_
+  }
+  pc <- class_dir('clinical')
+  pr <- class_dir('research')
+  cls <- default_fit_class_2n(pc, pr)
+  if (is.na(cls)) return(p)
+  if (cls == 'research') pr else pc
+}
+
+#' The standard best-fit rule, as written by update_best_fit_status.
+#'
+#' Most recent review whose status is reviewed_best_fit or
+#' reviewed_acceptable_fit; NA when there is none. Extracted so the samples
+#' table and the facets_qc.txt writer cannot disagree.
+#'
+#' @param reviews a get_review_status() data.frame
+#' @return a fit name or NA
+#' @export resolve_best_fit_standard
+resolve_best_fit_standard <- function(reviews) {
+  if (is.null(reviews) || nrow(reviews) == 0) return(NA_character_)
+  hit <- (reviews %>%
+            filter(!(fit_name == 'Not selected')) %>%
+            arrange(desc(date_reviewed)) %>%
+            filter(review_status %in% c('reviewed_acceptable_fit',
+                                        'reviewed_best_fit')))$fit_name[1]
+  if (is.null(hit)) NA_character_ else hit
+}
+
+#' Summarise one sample (or one 2n class subtree) for the samples table.
+#'
+#' Read-only: the manifest is read as-is (no self-heal), so a sample that has
+#' never been through metadata_init simply reports "Unreviewed".
+#'
+#' @param sample_id sample (pair) id
+#' @param sample_dir a standard sample dir or a 2n class dir
+#' @param is_2n whether the rule-13 ladder applies (2n) or the standard rule
+#' @return list(best_fit, reviewed_by, state, purity, ploidy)
+#' @export review_summary_for_dir
+review_summary_for_dir <- function(sample_id, sample_dir, is_2n = FALSE) {
+  none <- list(best_fit = NA_character_, reviewed_by = NA_character_,
+               state = 'Unreviewed', purity = NA_real_, ploidy = NA_real_)
+  if (is.null(sample_dir) || length(sample_dir) != 1 || is.na(sample_dir) ||
+      !nzchar(sample_dir) || !dir.exists(sample_dir)) {
+    return(none)
+  }
+
+  reviews <- tryCatch(get_review_status(sample_id, sample_dir), error = function(e) NULL)
+  if (is.null(reviews) || nrow(reviews) == 0) return(none)
+  reviews <- reviews %>% filter(!is.na(fit_name), !is.na(review_status))
+
+  autoqc   <- autoqc_reviewer_id_2n()
+  is_human <- function(who) !is.na(who) & who != autoqc
+  sel      <- reviews %>% filter(fit_name != 'Not selected', !is_ultra_fit_2n(fit_name))
+
+  best <- if (isTRUE(is_2n)) resolve_best_fit_2n(sel) else resolve_best_fit_standard(sel)
+
+  out <- none
+  if (!is.na(best)) {
+    rows <- sel %>% filter(fit_name == best)
+    win <- if (isTRUE(is_2n)) {
+      h <- rows %>% filter(review_status == 'reviewed_best_fit', is_human(reviewed_by)) %>%
+        arrange(desc(date_reviewed))
+      if (nrow(h) > 0) h[1, ] else {
+        a <- rows %>% filter(review_status == 'auto_qc_best_fit')
+        if (nrow(a) > 0) a[1, ] else rows[1, ]
+      }
+    } else {
+      r <- rows %>% filter(review_status %in% c('reviewed_best_fit', 'reviewed_acceptable_fit')) %>%
+        arrange(desc(date_reviewed))
+      if (nrow(r) > 0) r[1, ] else rows[1, ]
+    }
+    out$best_fit    <- best
+    out$reviewed_by <- if (is.na(win$reviewed_by[1])) NA_character_ else as.character(win$reviewed_by[1])
+    out$state <- switch(as.character(win$review_status[1]),
+                        reviewed_best_fit       = 'Human best',
+                        auto_qc_best_fit        = 'AutoQC best',
+                        reviewed_acceptable_fit = 'Acceptable only',
+                        'Reviewed')
+  } else if (any(reviews$review_status == 'reviewed_no_fit' & is_human(reviews$reviewed_by))) {
+    out$state <- 'No fit'
+  } else if (any(sel$review_status == 'reviewed_acceptable_fit' & is_human(sel$reviewed_by))) {
+    out$state <- 'Acceptable only'
+  } else if (any(reviews$review_status == 'auto_qc_no_fit')) {
+    out$state <- 'No fit (auto-qc)'
+  }
+
+  # Purity/ploidy of the best fit, from facets_qc.txt (purity run, else hisens).
+  if (!is.na(best)) {
+    qc_file <- list.files(sample_dir, pattern = "facets_qc\\.txt$", full.names = TRUE)
+    if (length(qc_file) > 0) {
+      qc <- tryCatch(fread(qc_file[1], colClasses = 'character'), error = function(e) NULL)
+      if (!is.null(qc) && 'fit_name' %in% names(qc)) {
+        row <- qc[qc$fit_name == best, ]
+        pick <- function(a, b) {
+          v <- NA_character_
+          if (nrow(row) > 0) {
+            if (a %in% names(row)) v <- row[[a]][1]
+            if ((is.na(v) || !nzchar(v)) && b %in% names(row)) v <- row[[b]][1]
+          }
+          suppressWarnings(as.numeric(v))
+        }
+        out$purity <- pick('purity_run_Purity', 'hisens_run_Purity')
+        out$ploidy <- pick('purity_run_Ploidy', 'hisens_run_Ploidy')
+      }
+    }
+  }
+  out
+}
+
+#' The VM samples-table side table.
+#'
+#' One row per manifest_metadata row, in the same order (the table joins by
+#' sample_id, and row selection stays positional on manifest_metadata). 2n
+#' pairs are summarised per class from the pair index; standard samples have
+#' only a research summary (all standard fits are research fits).
+#'
+#' @param manifest_metadata the loaded samples table (sample_id, path, ...)
+#' @param pair_index a pair_index_2n() data.frame (may be NULL/empty)
+#' @param registry a vm_repository_registry() data.frame
+#' @param progress optional shiny Progress
+#' @return data.frame(sample_id, repository, clinical_best_fit,
+#'   clinical_reviewed_by, research_best_fit, research_reviewed_by,
+#'   review_state, purity, ploidy)
+#' @export manifest_extra_vm
+manifest_extra_vm <- function(manifest_metadata, pair_index, registry, progress = NULL) {
+  n <- if (is.null(manifest_metadata)) 0 else nrow(manifest_metadata)
+  out <- data.frame(sample_id = character(n), repository = character(n),
+                    clinical_best_fit = rep(NA_character_, n), clinical_reviewed_by = rep(NA_character_, n),
+                    research_best_fit = rep(NA_character_, n), research_reviewed_by = rep(NA_character_, n),
+                    review_state = rep('Unreviewed', n), purity = rep(NA_real_, n), ploidy = rep(NA_real_, n),
+                    stringsAsFactors = FALSE)
+  if (n == 0) return(out)
+
+  has_index <- !is.null(pair_index) && is.data.frame(pair_index) && nrow(pair_index) > 0
+  for (i in seq_len(n)) {
+    sid  <- as.character(manifest_metadata$sample_id[i])
+    path <- as.character(manifest_metadata$path[i])
+    out$sample_id[i]  <- sid
+    out$repository[i] <- repository_label_for_path(path, registry)
+
+    if (has_index && sid %in% pair_index$sample_id) {
+      pi <- pair_index[match(sid, pair_index$sample_id), ]
+      cl <- review_summary_for_dir(sid, pi$path_clinical, is_2n = TRUE)
+      rs <- review_summary_for_dir(sid, pi$path_research, is_2n = TRUE)
+      out$clinical_best_fit[i]    <- cl$best_fit
+      out$clinical_reviewed_by[i] <- cl$reviewed_by
+      out$research_best_fit[i]    <- rs$best_fit
+      out$research_reviewed_by[i] <- rs$reviewed_by
+      primary <- if (!is.na(pi$path_research)) rs else cl
+    } else {
+      rs <- review_summary_for_dir(sid, path, is_2n = FALSE)
+      out$research_best_fit[i]    <- rs$best_fit
+      out$research_reviewed_by[i] <- rs$reviewed_by
+      primary <- rs
+    }
+    out$review_state[i] <- primary$state
+    out$purity[i]       <- primary$purity
+    out$ploidy[i]       <- primary$ploidy
+
+    if (!is.null(progress) && !identical(progress, NA)) {
+      progress$inc(1 / n, detail = paste(" ", i, "/", n))
+    }
+  }
+  out
+}

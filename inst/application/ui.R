@@ -320,6 +320,13 @@ ui <-
                    condition = "input.session_switch_impact == true",  # Show only if session_switch_impact is TRUE
                    wellPanel(
                      h4("Add samples by DMP-ID: "),
+                     # VM only (shown by the VM init observer): which tree the
+                     # ids below are expanded against.
+                     shinyjs::hidden(
+                       div(id = "div_vmRepository",
+                           selectInput("selectInput_vmRepository", "Repository:",
+                                       choices = character(0), width = "100%"))
+                     ),
                      h5("Accepts short format (Eg: P-0009137-T01-IM5) or long format (Eg: P-0009137-T01-IM5_P-0009137-N01-IM5)."),
                      textAreaInput("textAreaInput_impactSamplesInput", label = NULL, value = "", rows = 4),
                      actionButton("button_impactSamplesInput", "Add to Load Manifest", class = "btn-primary")
@@ -509,16 +516,6 @@ ui <-
                         wellPanel(
                           id = "fitPanel",
                           h4(strong("Generate Refits:")),
-
-                          # 2n only: a refit runs the whole 5-fit model, so it
-                          # always regenerates BOTH class subtrees, and a manual
-                          # dipLogR applies to the class currently being viewed.
-                          shinyjs::hidden(
-                            div(id = "div_refitNote2n",
-                                p(id = "text_refitNote2n", "",
-                                  style = "color: #1a5490; font-style: italic; font-size: 9pt; margin-bottom: 6px;")
-                            )
-                          ),
 
                           column(12,
                                  textInput("textInput_newDipLogR", value = "", "dipLogR")

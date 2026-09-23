@@ -1,4 +1,4 @@
-# Deploying facets-preview 3.3.0
+# Deploying facets-preview 3.3.1
 
 Two halves: the app image (this repo) and the facetflow session launcher (the
 `facetflow_service` checkout on the VM). The launcher files there are root-owned,
@@ -12,7 +12,7 @@ time. Only `run_fp.sh` and `fp_config.json` come from the local build context.
 
 Building before pushing therefore produces a **mislabeled hybrid**: the new
 entrypoint with the OLD app code, and an image whose `FACETS_PREVIEW_VERSION`
-says 3.3.0 while the installed package still reports the previous version. The
+says 3.3.1 while the installed package still reports the previous version. The
 2n container fails loudly instead (its baked sanity check asserts the `_2n`
 entry points), but the app image has no such guard.
 
@@ -25,13 +25,13 @@ git push origin master
 ```bash
 docker buildx build --builder multiarch \
   --platform linux/amd64,linux/arm64 \
-  -t price0416/fp_docker:3.3.0 -t price0416/fp_docker:dev \
+  -t price0416/fp_docker:3.3.1 -t price0416/fp_docker:dev \
   --push Docker/
 ```
 
 Multi-arch requires `--push` — a manifest list cannot be `--load`ed into the
 local daemon. For a local smoke test build single-arch instead:
-`docker --context=default buildx build --builder default --load --platform linux/amd64 -t price0416/fp_docker:3.3.0 Docker/`.
+`docker --context=default buildx build --builder default --load --platform linux/amd64 -t price0416/fp_docker:3.3.1 Docker/`.
 If the `multiarch` builder cannot reach the network (it has failed this way
 before), that single-arch form is the fallback.
 
@@ -51,12 +51,12 @@ the VM, so a fresh push to the same tag is silently ignored and sessions keep
 starting the stale image.
 
 ```bash
-ssh isvfpdev 'docker pull price0416/fp_docker:3.3.0 && docker pull price0416/fp_docker:dev'
-ssh isvfpdev "docker image inspect price0416/fp_docker:dev --format '{{.Config.Env}}'"   # expect FACETS_PREVIEW_VERSION=3.3.0
+ssh isvfpdev 'docker pull price0416/fp_docker:3.3.1 && docker pull price0416/fp_docker:dev'
+ssh isvfpdev "docker image inspect price0416/fp_docker:dev --format '{{.Config.Env}}'"   # expect FACETS_PREVIEW_VERSION=3.3.1
 ```
 
 Already-running sessions keep the old image; only sessions created after the pull
-get 3.3.0. Consider pinning `FACETS_IMAGE` in `.env` to `price0416/fp_docker:3.3.0`
+get 3.3.1. Consider pinning `FACETS_IMAGE` in `.env` to `price0416/fp_docker:3.3.1`
 rather than the floating `:dev`, so a stale local copy can never go unnoticed.
 
 ## 2. Apply the facetflow launcher patch
@@ -101,6 +101,39 @@ Verify on the next session: `docker inspect <session> --format '{{.HostConfig.Lo
 shows the cap, `docker logs <session>` holds only the pointer line, and the log
 file appears under the host log dir.
 
+### What 3.3.1 adds on the VM side
+
+No launcher change. Three things to know in `facetflow_dev`:
+
+- **2n refits now refit ONE class** — the one shown in the app. The queued `.sh`
+  runs the facets-suite-2n wrapper (research fits always; `--clinical` only for a
+  clinical refit) and then `split_facets_2n.py --only <class>`, which places
+  `<pair>/<class>/refit_<tag>/` and deletes the other class's files. The wrapper
+  flags it relies on (`--clinical-dipLogR`, `--research-*-cval`,
+  `--clinical-*-cval`) exist in facets-suite-2n ≥ 3.0.0, i.e. in
+  `facets_2n_cadence:0.1.8`. The refit host still needs `python3` on `PATH` for
+  the split (it already did). The queue, `refit_manager.nf` and `FACETS_IRIS_*`
+  settings are unchanged.
+- **Repository dropdown** on the Load Samples page (VM mode only) expands DMP ids
+  against one of four trees. Defaults are baked into the app; each can be
+  overridden in the shared `global.config` (`$FP_USER_BASE_WORKDIR/global.config`,
+  the same file that carries `impact_repo_path`):
+
+  ```
+  repo_base_impact         = /data1/core006/ccs/shared/resources/impact/facets/all
+  repo_base_impact_2n      = /data1/core006/ccs/shared/resources/impact_2n/facets/all
+  repo_base_impact_heme    = /data1/core006/ccs/shared/resources/impact_heme/facets/all
+  repo_base_impact_heme_2n = /data1/core006/ccs/shared/resources/impact_heme_2n/facets/all
+  ```
+
+  Bases include the `all/` bucket root (unlike `impact_repo_path`, which the
+  older loader suffixes with `/all/`). TCGA is deliberately not listed: its tree
+  is `…/tcga/all3/<TCGA-XX>/<NORMAL>_<TUMOR>/` (normal first, no `facets/`) and
+  needs its own bucket rule before it can be offered.
+- **Samples Manifest columns** (VM mode only) now come partly from reading each
+  sample's `facets_review.manifest` and `facets_qc.txt` at load time — for a 2n
+  pair, both class subtrees. Read-only; no self-heal is triggered by the table.
+
 ### Still worth doing at host level (outside both repos)
 
 - `/etc/docker/daemon.json` default `log-opts`, so anything started outside this
@@ -137,7 +170,8 @@ env -u SINGULARITY_DOCKER_USERNAME -u SINGULARITY_DOCKER_PASSWORD \
   /data1/core006/resources/singularity_image_library/price0416-facets_2n_cadence-0.1.8.img \
   docker://price0416/facets_2n_cadence:0.1.8
 
-# confirm it carries this release (expect facetsPreview 3.3.0, facetsSuite 3.0.0)
+# confirm the image (0.1.8 was built from 3.3.0 master; 3.3.1 needs no respin --
+# nothing the pipeline executes changed -- so 3.3.0 here is expected)
 singularity exec \
   /data1/core006/resources/singularity_image_library/price0416-facets_2n_cadence-0.1.8.img \
   Rscript -e 'cat(as.character(packageVersion("facetsPreview")), as.character(packageVersion("facetsSuite")), "\n")'
@@ -156,8 +190,11 @@ is refused with a dialog naming the missing files rather than run partially.
 ## 4. Ordering with the CADENCE containers
 
 Pushes to this repo's master land in the **next** build of `facets_2n_cadence`
-and `nf_impact_autoqc_2n` (both Dockerfiles clone master tip at build). This
-release changes pipeline-executed code — `resolve_best_fit_2n` now excludes ultra
+and `nf_impact_autoqc_2n` (both Dockerfiles clone master tip at build).
+**3.3.1 changes nothing the pipeline executes** (`update_best_fit_status` was
+refactored onto `resolve_best_fit_standard` with identical logic; the rest is
+Shiny-side), so no respin is needed for it. The 3.3.0 notes below still apply if
+the 0.1.8 / 0.1.1 respins have not happened yet. 3.3.0 changed pipeline-executed code — `resolve_best_fit_2n` now excludes ultra
 (rule 15) and `metadata_init_2n` canonicalizes `path` (rule 17) — so after
 pushing:
 

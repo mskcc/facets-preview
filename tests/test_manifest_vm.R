@@ -227,6 +227,10 @@ check("standard: an auto-qc-script no-fit alone is an automated no-fit",
         rbind(row_of("reviewed_no_fit", "Not selected", "auto-qc-script", "2023-11-16 20:43:02"))),
         FALSE)$state == "No fit (auto-qc)")
 
+check("reviewer: anything with auto-qc in the name is automation",
+      all(is_autoqc_reviewer_2n(c("auto-qc", "auto-qc-script", "richara4/auto-qc-script", "AutoQC-v2"))) &&
+        !any(is_autoqc_reviewer_2n(c("richara4", NA, "reviewer_a"))))
+
 # Same pair tag loaded from BOTH the standard and the 2n repository.
 mm <- data.frame(sample_id = c("S1", basename(pair), basename(pair), "S3"),
                  path = c(s1, s6, rs_dir, s3), stringsAsFactors = FALSE)
@@ -272,6 +276,24 @@ check("pick: ambiguous tag, loaded path is the 2n CLINICAL dir (after a class sw
 check("pick: ambiguous tag, loaded path is the standard dir -> the standard row",
       pick_manifest_row_2n(mm2, basename(pair), s6)$path == s6)
 check("pick: nothing to look up -> NULL", is.null(pick_manifest_row_2n(mm2[0, ], "S1")))
+
+## ---------------------------------------------------------------------------
+## 7. sample_choices_2n: unique dropdown entries, bare when the tag is unique
+## ---------------------------------------------------------------------------
+
+ch <- sample_choices_2n(mm2, treg)
+check("choices: one entry per row, same order", identical(ch$path, mm2$path))
+check("choices: a unique tag stays bare", ch$key[1] == "S1")
+check("choices: duplicated tags carry the repository label",
+      ch$key[2] == paste0(basename(pair), " (IMPACT Standard)") &&
+        ch$key[3] == paste0(basename(pair), " (IMPACT 2n)"))
+ch0 <- sample_choices_2n(mm2, NULL)
+check("choices: without a registry, duplicates are told apart by 2n-ness",
+      ch0$key[2] == paste0(basename(pair), " (Standard)") &&
+        ch0$key[3] == paste0(basename(pair), " (2n)"))
+mm3 <- rbind(mm2, mm2[3, ])
+check("choices: keys are always unique", !any(duplicated(sample_choices_2n(mm3, treg)$key)))
+check("choices: empty input -> empty frame", nrow(sample_choices_2n(mm2[0, ], treg)) == 0)
 
 cat("\n", n_pass, "passed,", n_fail, "failed\n")
 if (n_fail > 0) quit(status = 1)

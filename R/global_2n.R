@@ -1053,15 +1053,17 @@ resolve_best_fit_standard <- function(reviews) {
 #' Is a manifest row signed by an automated reviewer?
 #'
 #' The 2n autoQC signs exactly autoqc_reviewer_id_2n(); the STANDARD pipeline's
-#' autoQC signs "auto-qc-script" and writes the human vocabulary
-#' (reviewed_best_fit). For display purposes both are automation. This is only
-#' used for labelling -- the rule-13 ladder keeps its exact identity test.
+#' autoQC signs "auto-qc-script" -- sometimes prefixed by the account that ran
+#' it, e.g. "richara4/auto-qc-script" -- and writes the human vocabulary
+#' (reviewed_best_fit). Anything with "auto-qc" ANYWHERE in the name is
+#' automation. This is only used for labelling -- the rule-13 ladder keeps its
+#' exact identity test.
 #'
 #' @param who a reviewed_by value (vectorised)
 #' @return logical
 #' @export is_autoqc_reviewer_2n
 is_autoqc_reviewer_2n <- function(who) {
-  !is.na(who) & (who == autoqc_reviewer_id_2n() | grepl('^auto[-_]?qc', who, ignore.case = TRUE))
+  !is.na(who) & (who == autoqc_reviewer_id_2n() | grepl('auto[-_ ]?qc', who, ignore.case = TRUE))
 }
 
 #' Summarise one sample (or one 2n class subtree) for the samples table.
@@ -1234,4 +1236,41 @@ pick_manifest_row_2n <- function(manifest_metadata, sample_id, prefer_path = NUL
   }
   hit <- which(vapply(rows$path, same_tree, logical(1)))
   if (length(hit) > 0) rows[hit[1], , drop = FALSE] else rows[1, , drop = FALSE]
+}
+
+#' Unique dropdown entries for the samples in the table.
+#'
+#' The sample dropdowns carried bare tags, so two rows with the same tag
+#' (the standard and the 2n copy of a pair) collapsed into one entry and the
+#' second was unreachable. Unique tags stay bare -- the dropdown value is
+#' still the sample id, as before. Duplicated tags get a suffix: the
+#' repository label when one is known and differs, else "(2n)"/"(Standard)",
+#' else a counter.
+#'
+#' @param manifest_metadata the samples table (sample_id, path)
+#' @param registry a vm_repository_registry() data.frame, or NULL
+#' @return data.frame(key, sample_id, path), one row per input row, same order
+#' @export sample_choices_2n
+sample_choices_2n <- function(manifest_metadata, registry = NULL) {
+  empty <- data.frame(key = character(), sample_id = character(), path = character(),
+                      stringsAsFactors = FALSE)
+  if (is.null(manifest_metadata) || nrow(manifest_metadata) == 0) return(empty)
+  sid  <- as.character(manifest_metadata$sample_id)
+  path <- as.character(manifest_metadata$path)
+  key  <- sid
+  dup  <- sid %in% sid[duplicated(sid)]
+  if (any(dup)) {
+    suffix <- vapply(seq_along(sid), function(i) {
+      if (!dup[i]) return("")
+      lab <- if (!is.null(registry)) repository_label_for_path(path[i], registry) else "Other"
+      if (identical(lab, "Other")) {
+        id <- sample_identity_2n(path[i])
+        lab <- if (isTRUE(id$is_2n)) "2n" else "Standard"
+      }
+      lab
+    }, character(1))
+    key[dup] <- paste0(sid[dup], " (", suffix[dup], ")")
+  }
+  key <- make.unique(key, sep = " #")
+  data.frame(key = key, sample_id = sid, path = path, stringsAsFactors = FALSE)
 }

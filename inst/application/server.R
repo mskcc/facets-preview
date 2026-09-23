@@ -186,6 +186,7 @@ function(input, output, session) {
                            pair_paths = NULL, pair_paths_compare = NULL,
                            pair_index_2n = NULL, manifest_extra = NULL,
                            loaded_path = NULL, loaded_path_compare = NULL,
+                           sample_choices = NULL,
                            geneLevel_note = "", armLevel_note = "")
   output$verbatimTextOutput_sessionInfo <- renderPrint({print(sessionInfo())})
   output$verbatimTextOutput_signAs <- renderText({paste0(system('whoami', intern = T))})
@@ -852,8 +853,31 @@ function(input, output, session) {
 
   # The samples table may hold the same tag from two repositories; resolve the
   # dropdown's tag to ONE row, preferring the tree already loaded in the pane.
-  manifest_row_for <- function(sample_id, prefer_path = NULL) {
-    pick_manifest_row_2n(values$manifest_metadata, sample_id, prefer_path)
+  # `value` is what the sample dropdown holds: a bare tag, or a disambiguated
+  # "TAG (repo)" entry from sample_choices_2n. Resolve it through the choice
+  # table first; a bare tag (or a stale value) falls back to the tag lookup.
+  manifest_row_for <- function(value, prefer_path = NULL) {
+    mm <- values$manifest_metadata
+    ch <- values$sample_choices
+    if (!is.null(ch) && !is.null(mm) && nrow(ch) > 0 && length(value) == 1 && !is.na(value)) {
+      i <- match(value, ch$key)
+      if (!is.na(i)) {
+        j <- match(ch$path[i], mm$path)
+        if (!is.na(j)) return(mm[j, , drop = FALSE])
+      }
+    }
+    pick_manifest_row_2n(mm, value, prefer_path)
+  }
+  # The dropdown value that names a given manifest row (by path).
+  sample_choice_for_path <- function(path, fallback = "") {
+    ch <- values$sample_choices
+    if (is.null(ch) || nrow(ch) == 0 || is.null(path) || length(path) != 1) return(fallback)
+    i <- match(path, ch$path)
+    if (is.na(i)) fallback else ch$key[i]
+  }
+  sample_choice_keys <- function(fallback_ids) {
+    ch <- values$sample_choices
+    if (is.null(ch) || nrow(ch) == 0) fallback_ids else ch$key
   }
   manifest_default_fit <- function(sample_id, prefer_path = NULL) {
     row <- manifest_row_for(sample_id, prefer_path)
@@ -1293,6 +1317,9 @@ function(input, output, session) {
     values$pair_index_2n <- pair_index_2n(manifest[is_2n_path])
     #print("button_samplesInput-6.5")
     values$manifest_metadata <- manifest_metadata
+    # Dropdown entries: bare tags, disambiguated only where a tag repeats.
+    values$sample_choices <- sample_choices_2n(manifest_metadata,
+                                               if (is_vm_mode()) get_vm_repositories() else NULL)
 
     # VM: per-class best fits, reviewers and repository labels for the samples
     # table. A SIDE table -- manifest_metadata's columns stay positional.
@@ -2251,16 +2278,18 @@ function(input, output, session) {
       # All sample ids from the current manifest table
       mm <- values$manifest_metadata
       filtered_sample_id <- mm$sample_id[!is.na(mm$sample_id) & nzchar(mm$sample_id)]
+      sample_keys <- sample_choice_keys(filtered_sample_id)
+      selected_key <- sample_choice_for_path(selected_sample_path, selected_sample)
 
       updateSelectInput(
         session, "selectInput_selectSample",
-        choices  = as.list(filtered_sample_id),
-        selected = selected_sample
+        choices  = as.list(sample_keys),
+        selected = selected_key
       )
       updateSelectInput(
         session, "selectInput_selectSample_compare",
-        choices  = as.list(filtered_sample_id),
-        selected = selected_sample
+        choices  = as.list(sample_keys),
+        selected = selected_key
       )
 
       # Fit choices from the loaded runs
@@ -2461,20 +2490,22 @@ function(input, output, session) {
 
     # Filter out any NA or empty strings from the list of sample IDs
     filtered_sample_id <- values$manifest_metadata$sample_id[!is.na(values$manifest_metadata$sample_id) & values$manifest_metadata$sample_id != ""]
+    sample_keys  <- sample_choice_keys(filtered_sample_id)
+    selected_key <- sample_choice_for_path(selected_sample_path, selected_sample)
 
     # Update the selectInput with the filtered list of choices
     updateSelectInput(
       session,
       "selectInput_selectSample",
-      choices = as.list(unlist(filtered_sample_id)),
-      selected = selected_sample
+      choices = as.list(unlist(sample_keys)),
+      selected = selected_key
     )
 
     updateSelectInput(
       session,
       "selectInput_selectSample_compare",
-      choices = as.list(unlist(filtered_sample_id)),
-      selected = selected_sample
+      choices = as.list(unlist(sample_keys)),
+      selected = selected_key
     )
 
     updateSelectInput(session, "selectInput_selectBestFit",
@@ -4941,7 +4972,8 @@ function(input, output, session) {
     selected_run <- get_selected_run(values$sample_runs)
 
     run_path <- selected_run$path[1]
-    sample_id <- input$selectInput_selectSample
+    row <- manifest_row_for(input$selectInput_selectSample, values$loaded_path)
+    sample_id <- if (is.null(row)) input$selectInput_selectSample else as.character(row$sample_id[1])
     search_dir <- counts_search_dir(run_path)
 
     # Update the select counts file button.

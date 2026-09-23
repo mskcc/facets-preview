@@ -1285,8 +1285,7 @@ function(input, output, session) {
     values$manifest_extra <- NULL
     if (is_vm_mode() && nrow(manifest_metadata) > 0) {
       progress$set(message = "Summarising reviews:", value = 0)
-      values$manifest_extra <- manifest_extra_vm(manifest_metadata, values$pair_index_2n,
-                                                 get_vm_repositories(), progress)
+      values$manifest_extra <- manifest_extra_vm(manifest_metadata, get_vm_repositories(), progress)
     }
 
     #print("button_samplesInput-7")
@@ -1358,11 +1357,12 @@ function(input, output, session) {
       gicon <- function(x) as.character(icon(x, lib = "glyphicon"))
 
       # VM: repository + per-class best fit (with reviewer) + review state +
-      # best-fit purity/ploidy, joined from the side table by sample_id with
-      # match() so row order (and DT row indices) stay those of mm.
+      # best-fit purity/ploidy, joined from the side table by PATH (a pair tag
+      # can be loaded from two repositories at once) with match() so row order
+      # (and DT row indices) stay those of mm.
       ex <- values$manifest_extra
       if (is_vm_mode() && !is.null(ex) && is.data.frame(ex) && nrow(ex) > 0) {
-        ex <- ex[match(mm$sample_id, ex$sample_id), , drop = FALSE]
+        ex <- ex[match(mm$path, ex$path), , drop = FALSE]
         fit_cell <- function(fit, who) {
           ifelse(is.na(fit) | !nzchar(fit), "\u2014",
                  ifelse(is.na(who) | !nzchar(who), fit, paste0(fit, " (", who, ")")))

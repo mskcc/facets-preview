@@ -215,10 +215,30 @@ check("clinical-only pair -> its clinical class dir",
 ## 5. manifest_extra_vm: one row per sample, same order, per-class cells
 ## ---------------------------------------------------------------------------
 
-mm <- data.frame(sample_id = c("S1", basename(pair), "S3"),
-                 path = c(s1, rs_dir, s3), stringsAsFactors = FALSE)
-idx <- pair_index_2n(c(rs_dir))
-ex <- manifest_extra_vm(mm, idx, treg)
+# The standard autoQC signs "auto-qc-script" and uses the HUMAN vocabulary.
+s6 <- make_sample(file.path(root, "impact", "facets", "all", "P-00000", basename(pair)),
+                  rbind(row_of("reviewed_best_fit", "default", "auto-qc-script", "2026-07-31 16:27:43"),
+                        row_of("reviewed_no_fit", "Not selected", "auto-qc-script", "2023-11-16 20:43:02")))
+r6 <- review_summary_for_dir(basename(pair), s6, is_2n = FALSE)
+check("standard: auto-qc-script best is labelled AutoQC best, not Human best",
+      r6$best_fit == "default" && r6$state == "AutoQC best" && r6$reviewed_by == "auto-qc-script")
+check("standard: an auto-qc-script no-fit alone is an automated no-fit",
+      review_summary_for_dir("X", make_sample(file.path(root, "other", "S7"),
+        rbind(row_of("reviewed_no_fit", "Not selected", "auto-qc-script", "2023-11-16 20:43:02"))),
+        FALSE)$state == "No fit (auto-qc)")
+
+# Same pair tag loaded from BOTH the standard and the 2n repository.
+mm <- data.frame(sample_id = c("S1", basename(pair), basename(pair), "S3"),
+                 path = c(s1, s6, rs_dir, s3), stringsAsFactors = FALSE)
+ex <- manifest_extra_vm(mm, treg)
+check("extra: keyed by path -- the standard copy of a pair tag is NOT summarised as 2n",
+      ex$repository[2] == "IMPACT Standard" && is.na(ex$clinical_best_fit[2]) &&
+        ex$research_reviewed_by[2] == "auto-qc-script" && ex$review_state[2] == "AutoQC best")
+check("extra: ...and the 2n copy of the same tag is",
+      ex$repository[3] == "IMPACT 2n" && ex$research_reviewed_by[3] == AUTOQC &&
+        ex$review_state[3] == "AutoQC best")
+mm <- mm[c(1, 3, 4), ]
+ex <- manifest_extra_vm(mm, treg)
 check("extra: one row per metadata row, same order", identical(ex$sample_id, mm$sample_id))
 check("extra: standard row has research best fit and NA clinical",
       ex$research_best_fit[1] == "default" && is.na(ex$clinical_best_fit[1]) &&
@@ -231,8 +251,8 @@ check("extra: repository labels", identical(ex$repository, c("IMPACT Standard", 
 check("extra: purity/ploidy from the primary (research) class",
       isTRUE(all.equal(ex$purity[2], 0.42)) && isTRUE(all.equal(ex$ploidy[3], 3.4)))
 check("extra: empty input -> empty frame with the right columns",
-      nrow(manifest_extra_vm(mm[0, ], idx, treg)) == 0 &&
-        "review_state" %in% names(manifest_extra_vm(NULL, NULL, treg)))
+      nrow(manifest_extra_vm(mm[0, ], treg)) == 0 &&
+        "review_state" %in% names(manifest_extra_vm(NULL, treg)))
 
 cat("\n", n_pass, "passed,", n_fail, "failed\n")
 if (n_fail > 0) quit(status = 1)

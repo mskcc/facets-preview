@@ -1050,6 +1050,20 @@ resolve_best_fit_standard <- function(reviews) {
   if (is.null(hit)) NA_character_ else hit
 }
 
+#' Is a manifest row signed by an automated reviewer?
+#'
+#' The 2n autoQC signs exactly autoqc_reviewer_id_2n(); the STANDARD pipeline's
+#' autoQC signs "auto-qc-script" and writes the human vocabulary
+#' (reviewed_best_fit). For display purposes both are automation. This is only
+#' used for labelling -- the rule-13 ladder keeps its exact identity test.
+#'
+#' @param who a reviewed_by value (vectorised)
+#' @return logical
+#' @export is_autoqc_reviewer_2n
+is_autoqc_reviewer_2n <- function(who) {
+  !is.na(who) & (who == autoqc_reviewer_id_2n() | grepl('^auto[-_]?qc', who, ignore.case = TRUE))
+}
+
 #' Summarise one sample (or one 2n class subtree) for the samples table.
 #'
 #' Read-only: the manifest is read as-is (no self-heal), so a sample that has
@@ -1095,16 +1109,17 @@ review_summary_for_dir <- function(sample_id, sample_dir, is_2n = FALSE) {
     }
     out$best_fit    <- best
     out$reviewed_by <- if (is.na(win$reviewed_by[1])) NA_character_ else as.character(win$reviewed_by[1])
-    out$state <- switch(as.character(win$review_status[1]),
-                        reviewed_best_fit       = 'Human best',
-                        auto_qc_best_fit        = 'AutoQC best',
-                        reviewed_acceptable_fit = 'Acceptable only',
-                        'Reviewed')
-  } else if (any(reviews$review_status == 'reviewed_no_fit' & is_human(reviews$reviewed_by))) {
+    # State is decided by WHO signed the winning row, not by its status
+    # vocabulary: the standard autoQC writes reviewed_best_fit as "auto-qc-script".
+    status <- as.character(win$review_status[1])
+    out$state <- if (status == 'reviewed_acceptable_fit') 'Acceptable only'
+                 else if (is_autoqc_reviewer_2n(win$reviewed_by[1])) 'AutoQC best'
+                 else 'Human best'
+  } else if (any(reviews$review_status == 'reviewed_no_fit' & !is_autoqc_reviewer_2n(reviews$reviewed_by))) {
     out$state <- 'No fit'
-  } else if (any(sel$review_status == 'reviewed_acceptable_fit' & is_human(sel$reviewed_by))) {
+  } else if (any(sel$review_status == 'reviewed_acceptable_fit' & !is_autoqc_reviewer_2n(sel$reviewed_by))) {
     out$state <- 'Acceptable only'
-  } else if (any(reviews$review_status == 'auto_qc_no_fit')) {
+  } else if (any(reviews$review_status %in% c('auto_qc_no_fit', 'reviewed_no_fit'))) {
     out$state <- 'No fit (auto-qc)'
   }
 
@@ -1133,44 +1148,45 @@ review_summary_for_dir <- function(sample_id, sample_dir, is_2n = FALSE) {
 
 #' The VM samples-table side table.
 #'
-#' One row per manifest_metadata row, in the same order (the table joins by
-#' sample_id, and row selection stays positional on manifest_metadata). 2n
-#' pairs are summarised per class from the pair index; standard samples have
-#' only a research summary (all standard fits are research fits).
+#' One row per manifest_metadata row, in the same order. Keyed by PATH, not
+#' sample_id: the same pair tag can be loaded from two repositories at once
+#' (impact and impact_2n), and each row must be summarised from its own tree.
+#' A row is 2n when its own path is a 2n class subtree; then both classes are
+#' summarised from that pair. Standard samples have only a research summary
+#' (all standard fits are research fits).
 #'
 #' @param manifest_metadata the loaded samples table (sample_id, path, ...)
-#' @param pair_index a pair_index_2n() data.frame (may be NULL/empty)
 #' @param registry a vm_repository_registry() data.frame
 #' @param progress optional shiny Progress
-#' @return data.frame(sample_id, repository, clinical_best_fit,
+#' @return data.frame(sample_id, path, repository, clinical_best_fit,
 #'   clinical_reviewed_by, research_best_fit, research_reviewed_by,
 #'   review_state, purity, ploidy)
 #' @export manifest_extra_vm
-manifest_extra_vm <- function(manifest_metadata, pair_index, registry, progress = NULL) {
+manifest_extra_vm <- function(manifest_metadata, registry, progress = NULL) {
   n <- if (is.null(manifest_metadata)) 0 else nrow(manifest_metadata)
-  out <- data.frame(sample_id = character(n), repository = character(n),
+  out <- data.frame(sample_id = character(n), path = character(n), repository = character(n),
                     clinical_best_fit = rep(NA_character_, n), clinical_reviewed_by = rep(NA_character_, n),
                     research_best_fit = rep(NA_character_, n), research_reviewed_by = rep(NA_character_, n),
                     review_state = rep('Unreviewed', n), purity = rep(NA_real_, n), ploidy = rep(NA_real_, n),
                     stringsAsFactors = FALSE)
   if (n == 0) return(out)
 
-  has_index <- !is.null(pair_index) && is.data.frame(pair_index) && nrow(pair_index) > 0
   for (i in seq_len(n)) {
     sid  <- as.character(manifest_metadata$sample_id[i])
     path <- as.character(manifest_metadata$path[i])
     out$sample_id[i]  <- sid
+    out$path[i]       <- path
     out$repository[i] <- repository_label_for_path(path, registry)
 
-    if (has_index && sid %in% pair_index$sample_id) {
-      pi <- pair_index[match(sid, pair_index$sample_id), ]
-      cl <- review_summary_for_dir(sid, pi$path_clinical, is_2n = TRUE)
-      rs <- review_summary_for_dir(sid, pi$path_research, is_2n = TRUE)
+    id <- sample_identity_2n(path)
+    if (isTRUE(id$is_2n) && !is.na(id$class)) {
+      cl <- review_summary_for_dir(sid, id$path_clinical, is_2n = TRUE)
+      rs <- review_summary_for_dir(sid, id$path_research, is_2n = TRUE)
       out$clinical_best_fit[i]    <- cl$best_fit
       out$clinical_reviewed_by[i] <- cl$reviewed_by
       out$research_best_fit[i]    <- rs$best_fit
       out$research_reviewed_by[i] <- rs$reviewed_by
-      primary <- if (!is.na(pi$path_research)) rs else cl
+      primary <- if (!is.na(id$path_research)) rs else cl
     } else {
       rs <- review_summary_for_dir(sid, path, is_2n = FALSE)
       out$research_best_fit[i]    <- rs$best_fit

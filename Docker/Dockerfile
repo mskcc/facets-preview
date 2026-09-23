@@ -36,7 +36,7 @@ RUN apt-get -y update && apt-get upgrade -y && apt-get install -y --fix-missing 
 RUN apt-get install -y xdg-utils --fix-missing
 RUN apt-get install -y inotify-tools
 
-ENV FORCE_REBUILD_R=16
+ENV FORCE_REBUILD_R=17
 
 #RUN R -e "install.packages(c('Cairo','argparse','gridExtra', 'binom', 'BiocManager', 'diptest', 'egg','shiny', 'shinyWidgets', 'shinyjs', 'rhandsontable', 'doParallel', 'configr', 'R.utils', 'shinyFiles', 'here', 'dplyr', 'httr', 'jsonlite'), repos='http://cran.us.r-project.org')" \
 #	&& R -e "BiocManager::install('rtracklayer')"

@@ -2835,6 +2835,9 @@ function(input, output, session) {
 
     # update other text options
     selected_run <- values$sample_runs[which(values$sample_runs$fit_name == paste0(input$selectInput_selectFit)),]
+    # The fit dropdown can name a fit the pane no longer holds (a failed
+    # reload leaves sample_runs empty); `if (NULL)` here used to kill the session.
+    if (is.null(selected_run) || nrow(selected_run) == 0) return(NULL)
     if ( selected_run$is_best_fit[1]) {
       shinyjs::showElement(id="div_bestFitTrophy", anim = TRUE, animType = "fade", time = 0.5)
     } else {
@@ -2974,6 +2977,7 @@ function(input, output, session) {
 
     # update other text options
     selected_run <- values$sample_runs_compare[which(values$sample_runs_compare$fit_name == paste0(input$selectInput_selectFit_compare)),]
+    if (is.null(selected_run) || nrow(selected_run) == 0) return(NULL)
     if ( selected_run$is_best_fit[1]) {
       shinyjs::showElement(id="div_bestFitTrophy_compare", anim = TRUE, animType = "fade", time = 0.5)
     } else {

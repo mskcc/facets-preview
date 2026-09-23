@@ -1203,3 +1203,35 @@ manifest_extra_vm <- function(manifest_metadata, registry, progress = NULL) {
   }
   out
 }
+
+#' Pick ONE samples-table row for a sample id.
+#'
+#' The same pair tag can be loaded from two repositories (impact and
+#' impact_2n). The sample dropdown carries only the tag, so when it is
+#' ambiguous the row whose tree is already loaded in the pane wins
+#' (`prefer_path`: equal path, or the same 2n pair dir -- a class swap loads
+#' the sibling subtree of the same pair); otherwise the first row, as before.
+#'
+#' @param manifest_metadata the samples table (needs sample_id, path)
+#' @param sample_id the tag to look up
+#' @param prefer_path the path currently loaded in the pane, or NULL
+#' @return a one-row data.frame, or NULL when the tag is absent
+#' @export pick_manifest_row_2n
+pick_manifest_row_2n <- function(manifest_metadata, sample_id, prefer_path = NULL) {
+  if (is.null(manifest_metadata) || nrow(manifest_metadata) == 0 ||
+      is.null(sample_id) || length(sample_id) != 1 || is.na(sample_id)) return(NULL)
+  rows <- manifest_metadata[manifest_metadata$sample_id %in% sample_id, , drop = FALSE]
+  if (nrow(rows) == 0) return(NULL)
+  if (nrow(rows) == 1 || is.null(prefer_path) || length(prefer_path) != 1 ||
+      is.na(prefer_path) || !nzchar(prefer_path)) return(rows[1, , drop = FALSE])
+
+  norm <- function(p) sub('/+$', '', gsub('(?<!:)//+', '/', p, perl = TRUE))
+  same_tree <- function(p) {
+    if (norm(p) == norm(prefer_path)) return(TRUE)
+    a <- sample_identity_2n(p); b <- sample_identity_2n(prefer_path)
+    isTRUE(a$is_2n) && isTRUE(b$is_2n) && !is.na(a$pair_dir) && !is.na(b$pair_dir) &&
+      norm(a$pair_dir) == norm(b$pair_dir)
+  }
+  hit <- which(vapply(rows$path, same_tree, logical(1)))
+  if (length(hit) > 0) rows[hit[1], , drop = FALSE] else rows[1, , drop = FALSE]
+}

@@ -254,5 +254,24 @@ check("extra: empty input -> empty frame with the right columns",
       nrow(manifest_extra_vm(mm[0, ], treg)) == 0 &&
         "review_state" %in% names(manifest_extra_vm(NULL, treg)))
 
+## ---------------------------------------------------------------------------
+## 6. pick_manifest_row_2n: one row for a tag loaded from two repositories
+## ---------------------------------------------------------------------------
+
+mm2 <- data.frame(sample_id = c("S1", basename(pair), basename(pair)),
+                  path = c(s1, s6, rs_dir), default_fit_name = c("default", "default", "alt"),
+                  stringsAsFactors = FALSE)
+check("pick: unique tag -> its row", pick_manifest_row_2n(mm2, "S1")$path == s1)
+check("pick: absent tag -> NULL", is.null(pick_manifest_row_2n(mm2, "nope")))
+check("pick: ambiguous tag, no preference -> first row (standard copy)",
+      pick_manifest_row_2n(mm2, basename(pair))$path == s6)
+check("pick: ambiguous tag, loaded path is the 2n research dir -> the 2n row",
+      pick_manifest_row_2n(mm2, basename(pair), rs_dir)$path == rs_dir)
+check("pick: ambiguous tag, loaded path is the 2n CLINICAL dir (after a class swap) -> still the 2n row",
+      pick_manifest_row_2n(mm2, basename(pair), cl_dir)$path == rs_dir)
+check("pick: ambiguous tag, loaded path is the standard dir -> the standard row",
+      pick_manifest_row_2n(mm2, basename(pair), s6)$path == s6)
+check("pick: nothing to look up -> NULL", is.null(pick_manifest_row_2n(mm2[0, ], "S1")))
+
 cat("\n", n_pass, "passed,", n_fail, "failed\n")
 if (n_fail > 0) quit(status = 1)

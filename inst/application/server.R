@@ -185,6 +185,7 @@ function(input, output, session) {
                            fit_class = NA_character_, fit_class_compare = NA_character_,
                            pair_paths = NULL, pair_paths_compare = NULL,
                            pair_index_2n = NULL, manifest_extra = NULL,
+                           loaded_path = NULL, loaded_path_compare = NULL,
                            geneLevel_note = "", armLevel_note = "")
   output$verbatimTextOutput_sessionInfo <- renderPrint({print(sessionInfo())})
   output$verbatimTextOutput_signAs <- renderText({paste0(system('whoami', intern = T))})
@@ -838,13 +839,25 @@ function(input, output, session) {
       values$is_2n_compare         <- isTRUE(id$is_2n)
       values$fit_class_compare     <- id$class
       values$pair_paths_compare    <- pair_paths
+      values$loaded_path_compare   <- sample_path
     } else {
       values$is_2n                 <- isTRUE(id$is_2n)
       values$fit_class             <- id$class
       values$pair_paths            <- pair_paths
+      values$loaded_path           <- sample_path
     }
 
     runs
+  }
+
+  # The samples table may hold the same tag from two repositories; resolve the
+  # dropdown's tag to ONE row, preferring the tree already loaded in the pane.
+  manifest_row_for <- function(sample_id, prefer_path = NULL) {
+    pick_manifest_row_2n(values$manifest_metadata, sample_id, prefer_path)
+  }
+  manifest_default_fit <- function(sample_id, prefer_path = NULL) {
+    row <- manifest_row_for(sample_id, prefer_path)
+    if (is.null(row)) NA_character_ else as.character(row$default_fit_name[1])
   }
 
   # Fit choices for a pane's dropdowns. Rule 15: ultra fits are view-only and are
@@ -953,9 +966,10 @@ function(input, output, session) {
     if (input$reviewTabsetPanel == "cBioPortal") {
 
       #selected_sample <- paste(unlist(values$manifest_metadata[input$datatable_samples_rows_selected, 1]), collapse = "")
-      selected_sample = paste(unlist(values$manifest_metadata$sample_id[values$manifest_metadata$sample_id %in% input$selectInput_selectSample]), collapse="")
+      row <- manifest_row_for(input$selectInput_selectSample, values$loaded_path)
+      selected_sample <- if (is.null(row)) "" else as.character(row$sample_id[1])
 
-      dmp_id <- (values$manifest_metadata %>% filter(sample_id == selected_sample))$dmp_id[1]
+      dmp_id <- if (is.null(row) || !("dmp_id" %in% names(row))) NA else row$dmp_id[1]
 
       url <- NULL
       if (!is.null(dmp_id) && !is.na(dmp_id)) {
@@ -1652,7 +1666,8 @@ function(input, output, session) {
     ignore_storage_change(TRUE)
 
     # Get the selected sample path from values$manifest_metadata
-    selected_sample_path <- paste(unlist(values$manifest_metadata$path[values$manifest_metadata$sample_id %in% input$selectInput_selectSample]), collapse = "")
+    row <- manifest_row_for(input$selectInput_selectSample, values$loaded_path)
+    selected_sample_path <- if (is.null(row)) "" else as.character(row$path[1])
 
     # Check if selected_sample_path is empty or NULL, and return if it is
     if (is.null(selected_sample_path) || selected_sample_path == "") {
@@ -1861,7 +1876,8 @@ function(input, output, session) {
     #print("ToggleStorage2")
 
     # Get the selected sample path from values$manifest_metadata
-    selected_sample_path <- paste(unlist(values$manifest_metadata$path[values$manifest_metadata$sample_id %in% input$selectInput_selectSample_compare]), collapse = "")
+    row <- manifest_row_for(input$selectInput_selectSample_compare, values$loaded_path_compare)
+    selected_sample_path <- if (is.null(row)) "" else as.character(row$path[1])
 
     # Check if selected_sample_path is empty or NULL, and return if it is
     if (is.null(selected_sample_path) || selected_sample_path == "") {
@@ -2421,7 +2437,7 @@ function(input, output, session) {
     if (nrow(values$sample_runs %>% filter(is_best_fit)) == 1) {
       selected_run = values$sample_runs %>% filter(is_best_fit) %>% head(n=1)
     } else {
-      default_fit = (values$manifest_metadata %>% filter(sample_id == selected_sample))$default_fit_name
+      default_fit = manifest_default_fit(selected_sample, selected_sample_path)
       selected_run = values$sample_runs %>% filter(fit_name==default_fit) %>% head(n=1)
     }
 
@@ -2596,21 +2612,16 @@ function(input, output, session) {
 
 
   handleSampleChange <- function(sample_path_override = NULL) {
-    # Figure out the selected sample + path from the manifest table
-    selected_sample <- paste(
-      unlist(values$manifest_metadata$sample_id[values$manifest_metadata$sample_id %in% input$selectInput_selectSample]),
-      collapse = ""
-    )
+    # Figure out the selected sample + path from the manifest table. One row:
+    # a tag loaded from two repositories used to have its two paths pasted
+    # together into one nonexistent path.
+    row <- manifest_row_for(input$selectInput_selectSample, values$loaded_path)
+    selected_sample <- if (is.null(row)) "" else as.character(row$sample_id[1])
     # The override is how the 2n class toggle reloads the pane from the sibling
-    # subtree; with the default NULL this is the original lookup, unchanged.
+    # subtree; with the default NULL the path comes from the manifest row.
     selected_sample_path <- if (!is.null(sample_path_override)) {
       sample_path_override
-    } else {
-      paste(
-        unlist(values$manifest_metadata$path[values$manifest_metadata$sample_id %in% input$selectInput_selectSample]),
-        collapse = ""
-      )
-    }
+    } else if (is.null(row)) "" else as.character(row$path[1])
 
     # Always (re)load runs for the newly selected sample
     progress <- shiny::Progress$new(); on.exit(progress$close(), add = TRUE)
@@ -2659,7 +2670,7 @@ function(input, output, session) {
     if (nrow(values$sample_runs %>% dplyr::filter(is_best_fit)) == 1) {
       selected_run <- values$sample_runs %>% dplyr::filter(is_best_fit) %>% head(n = 1)
     } else {
-      default_fit <- (values$manifest_metadata %>% dplyr::filter(sample_id == selected_sample))$default_fit_name
+      default_fit <- manifest_default_fit(selected_sample, selected_sample_path)
       selected_run <- values$sample_runs %>% dplyr::filter(fit_name == default_fit) %>% head(n = 1)
     }
 
@@ -2720,18 +2731,11 @@ function(input, output, session) {
 
 
   handleSampleChange_compare <- function(sample_path_override = NULL) {
-    selected_sample <- paste(
-      unlist(values$manifest_metadata$sample_id[values$manifest_metadata$sample_id %in% input$selectInput_selectSample_compare]),
-      collapse = ""
-    )
+    row <- manifest_row_for(input$selectInput_selectSample_compare, values$loaded_path_compare)
+    selected_sample <- if (is.null(row)) "" else as.character(row$sample_id[1])
     selected_sample_path <- if (!is.null(sample_path_override)) {
       sample_path_override
-    } else {
-      paste(
-        unlist(values$manifest_metadata$path[values$manifest_metadata$sample_id %in% input$selectInput_selectSample_compare]),
-        collapse = ""
-      )
-    }
+    } else if (is.null(row)) "" else as.character(row$path[1])
 
     # Always (re)load runs for the compare sample
     progress <- shiny::Progress$new(); on.exit(progress$close(), add = TRUE)
@@ -2782,7 +2786,7 @@ function(input, output, session) {
     if (nrow(values$sample_runs_compare %>% dplyr::filter(is_best_fit)) == 1) {
       selected_run <- values$sample_runs_compare %>% dplyr::filter(is_best_fit) %>% head(n = 1)
     } else {
-      default_fit <- (values$manifest_metadata %>% dplyr::filter(sample_id == selected_sample))$default_fit_name
+      default_fit <- manifest_default_fit(selected_sample, selected_sample_path)
       selected_run <- values$sample_runs_compare %>% dplyr::filter(fit_name == default_fit) %>% head(n = 1)
     }
 

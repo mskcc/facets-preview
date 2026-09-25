@@ -295,5 +295,35 @@ mm3 <- rbind(mm2, mm2[3, ])
 check("choices: keys are always unique", !any(duplicated(sample_choices_2n(mm3, treg)$key)))
 check("choices: empty input -> empty frame", nrow(sample_choices_2n(mm2[0, ], treg)) == 0)
 
+## ---------------------------------------------------------------------------
+## 8. PNG sizing from the image header
+## ---------------------------------------------------------------------------
+
+write_png <- function(path, w, h) {
+  # A minimal valid-enough PNG: signature + IHDR (only the header is read).
+  be <- function(n) as.raw(c(n %/% 256^3, (n %/% 256^2) %% 256, (n %/% 256) %% 256, n %% 256))
+  con <- file(path, "wb"); on.exit(close(con))
+  writeBin(as.raw(c(0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)), con)
+  writeBin(be(13), con); writeBin(charToRaw("IHDR"), con)
+  writeBin(be(w), con); writeBin(be(h), con)
+  writeBin(as.raw(c(8, 2, 0, 0, 0)), con); writeBin(as.raw(rep(0, 4)), con)
+  path
+}
+std <- write_png(tempfile(fileext = ".png"), 3218, 3960)   # 9.75x12 in @ 330 dpi
+twn <- write_png(tempfile(fileext = ".png"), 2700, 2400)   # 9x8 in @ 300 dpi
+check("png: dimensions come from the IHDR chunk", identical(png_dimensions(std), c(3218, 3960)))
+check("png: the standard suite's aspect keeps the classic 650x800",
+      identical(png_display_size(std), list(width = 650L, height = 800L)))
+old <- write_png(tempfile(fileext = ".png"), 850, 999)     # older suite output
+check("png: the older suite's 850x999 also keeps the classic size",
+      identical(png_display_size(old), list(width = 650L, height = 800L)))
+check("png: the 2n wrapper's aspect keeps the height and widens",
+      identical(png_display_size(twn), list(width = 900L, height = 800L)))
+check("png: an unreadable file falls back to the classic size",
+      identical(png_display_size(file.path(root, "nope.png")), list(width = 650L, height = 800L)) &&
+        all(is.na(png_dimensions(file.path(root, "nope.png")))))
+notpng <- tempfile(fileext = ".png"); writeLines("hello", notpng)
+check("png: a non-PNG is not parsed", all(is.na(png_dimensions(notpng))))
+
 cat("\n", n_pass, "passed,", n_fail, "failed\n")
 if (n_fail > 0) quit(status = 1)

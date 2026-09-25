@@ -1274,3 +1274,50 @@ sample_choices_2n <- function(manifest_metadata, registry = NULL) {
   key <- make.unique(key, sep = " #")
   data.frame(key = key, sample_id = sid, path = path, stringsAsFactors = FALSE)
 }
+
+#' Pixel dimensions of a PNG, from its header.
+#'
+#' Reads only the IHDR chunk (bytes 17-24, big-endian width then height), so
+#' it costs one 24-byte read and needs no imaging package.
+#'
+#' @param path a .png file
+#' @return c(width, height) in pixels, or c(NA, NA) when unreadable / not a PNG
+#' @export png_dimensions
+png_dimensions <- function(path) {
+  none <- c(NA_integer_, NA_integer_)
+  if (is.null(path) || length(path) != 1 || is.na(path) || !nzchar(path) ||
+      !file.exists(path) || dir.exists(path)) return(none)
+  hdr <- tryCatch({
+    con <- file(path, "rb"); on.exit(close(con))
+    readBin(con, "raw", n = 24)
+  }, error = function(e) raw(0))
+  if (length(hdr) < 24 ||
+      !identical(hdr[1:8], as.raw(c(0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)))) return(none)
+  be <- function(b) sum(as.integer(b) * 256^(3:0))
+  c(be(hdr[17:20]), be(hdr[21:24]))
+}
+
+#' Display size for a FACETS plot, from the image itself.
+#'
+#' The app always drew plots at 650x800, which matches the standard suite's
+#' 9.75x12 in device exactly. facets-suite-2n draws 9x8 in, and forcing that
+#' into 650x800 squashes it. Rather than guessing from the sample type, look at
+#' the PNG: the classic aspect keeps the classic size to the pixel; any other
+#' aspect keeps the same height (so two panes stay aligned) and takes the width
+#' its own ratio implies.
+#'
+#' @param path a .png file
+#' @param height display height in px
+#' @return list(width=, height=)
+#' @export png_display_size
+png_display_size <- function(path, height = 800) {
+  classic <- list(width = 650L, height = as.integer(height))
+  d <- png_dimensions(path)
+  if (any(is.na(d)) || d[2] <= 0) return(classic)
+  # Standard plots have varied a little across suite versions (9.75x12 in,
+  # and an older 850x999 px form); all are portrait near 0.81-0.85 and all
+  # were always shown at 650x800. The 2n plot is landscape (1.125).
+  aspect <- d[1] / d[2]
+  if (abs(aspect - 650 / 800) < 0.06) return(classic)
+  list(width = as.integer(round(height * aspect)), height = as.integer(height))
+}

@@ -4023,7 +4023,10 @@ function(input, output, session) {
                  "\n\n", problem), easyClose = TRUE))
         return(list(src = "", width = 0, height = 0))
       }
-      list(src = png_filename, contentType = 'image/png', width = 650, height = 800)
+      # Size from the image itself: classic 650x800 for the standard suite's
+      # plots, the image's own aspect for facets-suite-2n's wider ones.
+      sz <- png_display_size(png_filename)
+      list(src = png_filename, contentType = 'image/png', width = sz$width, height = sz$height)
     },
     deleteFile = FALSE)
 
@@ -4205,7 +4208,8 @@ function(input, output, session) {
                  "\n\n", problem), easyClose = TRUE))
         return(list(src = "", width = 0, height = 0))
       }
-      list(src = png_filename, contentType = 'image/png', width = 650, height = 800)
+      sz <- png_display_size(png_filename)
+      list(src = png_filename, contentType = 'image/png', width = sz$width, height = sz$height)
     },
     deleteFile = FALSE)
 

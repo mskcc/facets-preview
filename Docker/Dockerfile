@@ -20,7 +20,7 @@ ENV PCTGCDATA 0.2.0
 RUN sed -i '/jessie-updates/d' /etc/apt/sources.list
 
 # Requirements
-RUN apt-get -y update && apt-get upgrade -y && apt-get install -y --fix-missing apt-utils nano wget\
+RUN apt-get -y update && apt-get upgrade -y && apt-get install -y --fix-missing apt-utils nano wget libpng-dev\
 	g++ \
 	tar \
 	bzip2 \
@@ -36,12 +36,12 @@ RUN apt-get -y update && apt-get upgrade -y && apt-get install -y --fix-missing 
 RUN apt-get install -y xdg-utils --fix-missing
 RUN apt-get install -y inotify-tools
 
-ENV FORCE_REBUILD_R=19
+ENV FORCE_REBUILD_R=20
 
 #RUN R -e "install.packages(c('Cairo','argparse','gridExtra', 'binom', 'BiocManager', 'diptest', 'egg','shiny', 'shinyWidgets', 'shinyjs', 'rhandsontable', 'doParallel', 'configr', 'R.utils', 'shinyFiles', 'here', 'dplyr', 'httr', 'jsonlite'), repos='http://cran.us.r-project.org')" \
 #	&& R -e "BiocManager::install('rtracklayer')"
 
-RUN R -e "options(repos=c(CRAN='https://packagemanager.posit.co/cran/__linux__/bionic/2025-06-01')); install.packages(c('Cairo','argparse','gridExtra','binom','BiocManager','diptest','egg','shiny','shinyWidgets','shinyjs','rhandsontable','doParallel','configr','R.utils','shinyFiles','here','dplyr','httr','jsonlite'), Ncpus=parallel::detectCores())" \
+RUN R -e "options(repos=c(CRAN='https://packagemanager.posit.co/cran/__linux__/bionic/2025-06-01')); install.packages(c('Cairo','argparse','gridExtra','binom','BiocManager','diptest','egg','shiny','shinyWidgets','shinyjs','rhandsontable','doParallel','configr','R.utils','shinyFiles','here','dplyr','httr','jsonlite','png'), Ncpus=parallel::detectCores())" \
  && R -e "options(repos=c(CRAN='https://packagemanager.posit.co/cran/__linux__/bionic/2025-06-01')); BiocManager::install('rtracklayer', ask=FALSE, update=FALSE)"
 
 RUN R -q -e "install.packages('remotes', repos='https://cloud.r-project.org')" \

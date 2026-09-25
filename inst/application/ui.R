@@ -47,21 +47,39 @@ ui <-
         var ctx = canvas.getContext('2d');
         var indicator = document.getElementById('yValueIndicator');
 
-        overlay.width = overlay.clientWidth;
-        overlay.height = overlay.clientHeight;
+        // Where the copy-number panel is (fractions of the image height) and
+        // what its rows mean. The server calibrates this per plot from the PNG
+        // itself (see cnlr_plot_calibration); these are the classic defaults
+        // until the first plot arrives. dipLogR = vTop - frac*(vTop-vBottom) + offset:
+        // the standard suite plots raw cnlr (offset 0); facets-suite-2n plots
+        // cnlr minus dipLogR, so the run's dipLogR is added back.
+        var calib = { top: 0.031, height: 0.1835, vTop: 3, vBottom: -3, offset: 0 };
 
-        // Calculate y-axis range
-        var yAxisMin = -3;
-        var yAxisMax = 3;
+        function fitCanvas() {
+            canvas.width = overlay.clientWidth;
+            canvas.height = overlay.clientHeight;
+        }
+        function applyCalibration() {
+            overlay.style.top = (calib.top * 100) + '%';
+            overlay.style.height = (calib.height * 100) + '%';
+            fitCanvas();
+        }
+        applyCalibration();
+
+        Shiny.addCustomMessageHandler('cnlrCalibration', function(c) {
+            calib = { top: c.top, height: c.height, vTop: c.v_top, vBottom: c.v_bottom, offset: c.offset };
+            // The image may still be loading when the message lands; size the
+            // canvas again once it has its final height.
+            applyCalibration();
+            $('#imageOutput_pngImage1 img').one('load', applyCalibration);
+        });
 
         overlay.addEventListener('mousemove', function(event) {
             var rect = overlay.getBoundingClientRect();
             var y = event.clientY - rect.top;
+            if (canvas.width !== overlay.clientWidth || canvas.height !== overlay.clientHeight) fitCanvas();
 
-            // Clear the canvas
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // Draw the horizontal line directly at the mouse's Y position
             ctx.beginPath();
             ctx.moveTo(0, y);
             ctx.lineTo(canvas.width, y);
@@ -69,25 +87,21 @@ ui <-
             ctx.lineWidth = 2;
             ctx.stroke();
 
-            // Calculate the corresponding y-value directly from the Y position within the overlayDiv
-            var adjustedY = y / overlay.clientHeight;
-            var yValue = yAxisMax - (adjustedY * (yAxisMax - yAxisMin));
+            var frac = y / overlay.clientHeight;
+            var yValue = calib.vTop - frac * (calib.vTop - calib.vBottom) + calib.offset;
 
-            // Display the value at the adjusted position
-            indicator.style.top = (y - 10) + 'px';  // Adjust the position of the indicator
-            indicator.style.left = '80px'; // Adjust the position of the indicator
+            indicator.style.top = (y - 10) + 'px';
+            indicator.style.left = '80px';
             indicator.textContent = yValue.toFixed(2);
         });
 
         // Handle click to set the dipLogR value
         overlay.addEventListener('click', function() {
-            // Set the input value using jQuery
             var finalValue = indicator.textContent;
             $('#textInput_newDipLogR').val(finalValue).trigger('change');
         });
 
         overlay.addEventListener('mouseleave', function() {
-            // Clear the canvas when the mouse leaves the image
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             indicator.textContent = '';
         });

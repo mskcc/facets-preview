@@ -777,6 +777,27 @@ function(input, output, session) {
          note = note)
   }
 
+  # Calibrate the dynamic-dipLogR overlay for the plot in the main pane. The
+  # plot's y limits derive from the run's segment medians (its cncf) and the
+  # orange reference line sits at 0 (2n, axis = cnlr - dipLogR) or at dipLogR
+  # (standard, raw cnlr); cnlr_plot_calibration works that out from the PNG.
+  # Any failure leaves the classic geometry in place rather than breaking the
+  # render.
+  send_cnlr_calibration <- function(png_filename, fit_type, run) {
+    calib <- tryCatch({
+      prefix <- if (identical(fit_type, "Hisens")) run$hisens_run_prefix[1] else run$purity_run_prefix[1]
+      dip    <- if (identical(fit_type, "Hisens")) run$hisens_run_dipLogR[1] else run$purity_run_dipLogR[1]
+      cncf   <- paste0(prefix, ".cncf.txt")
+      cm <- if (!is.na(prefix) && file.exists(cncf)) {
+        d <- data.table::fread(cncf, select = "cnlr.median", showProgress = FALSE)
+        d$cnlr.median
+      } else NULL
+      cnlr_plot_calibration(png_filename, cm, suppressWarnings(as.numeric(dip)))
+    }, error = function(e) cnlr_calibration_legacy())
+    session$sendCustomMessage("cnlrCalibration", calib[c("top", "height", "v_top", "v_bottom", "offset")])
+    invisible(calib)
+  }
+
   # --- 2n helpers -------------------------------------------------------------
   # shinyWidgets::updateRadioGroupButtons() re-renders the group whenever
   # `choices` is passed, using ITS OWN defaults (status "default", not
@@ -4026,6 +4047,9 @@ function(input, output, session) {
       # Size from the image itself: classic 650x800 for the standard suite's
       # plots, the image's own aspect for facets-suite-2n's wider ones.
       sz <- png_display_size(png_filename)
+      # ...and tell the dynamic-dipLogR overlay where this plot's copy-number
+      # panel is and what its axis means (the two suites differ in both).
+      send_cnlr_calibration(png_filename, view_fit_type, selected_run)
       list(src = png_filename, contentType = 'image/png', width = sz$width, height = sz$height)
     },
     deleteFile = FALSE)

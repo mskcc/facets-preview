@@ -16,9 +16,15 @@ check <- function(label, cond) {
 
 # A single copy-number panel drawn as the suites draw it: theme_bw, pretty
 # breaks over floor/ceiling limits with a clamp, sandybrown reference line.
-draw <- function(path, w, h, units, res, clamp, adjusted, dip, segs, line = TRUE) {
-  ymin <- min(floor(min(segs)), -clamp); ymax <- max(ceiling(max(segs)), clamp)
+draw <- function(path, w, h, units, res, clamp, adjusted, dip, segs, line = TRUE,
+                 symmetric = adjusted, cap = 5) {
   y <- if (adjusted) segs - dip else segs
+  if (symmetric) {                      # the 2n rule: symmetric, default +/-3, capped
+    lim <- min(cap, max(clamp, ceiling(max(abs(y)))))
+    ymin <- -lim; ymax <- lim
+  } else {
+    ymin <- min(floor(min(segs)), -clamp); ymax <- max(ceiling(max(segs)), clamp)
+  }
   p <- ggplot(data.frame(x = seq_along(y), y = y)) +
     geom_point(aes(x, y), col = "#0080FF", size = .4) +
     scale_y_continuous(breaks = scales::pretty_breaks(), limits = c(ymin, ymax)) +
@@ -47,29 +53,34 @@ check("standard: raw cnlr axis, no offset", !cs$adjusted && cs$offset == 0)
 check("standard: hovering the reference line reads the dipLogR",
       abs(value_at_orange(cs, std) - (-0.09)) < 0.03)
 
-n2 <- draw(tempfile(fileext = ".png"), 9, 8, "in", 300, 2, TRUE, -0.29, segs)
+n2 <- draw(tempfile(fileext = ".png"), 9, 8, "in", 300, 3, TRUE, -0.29, segs)
 cn <- cnlr_plot_calibration(n2, segs, -0.29)
-check("2n: limits are +/-2 with expansion",
-      cn$ok && isTRUE(all.equal(cn$v_top, 2.2)) && isTRUE(all.equal(cn$v_bottom, -2.2)))
+check("2n: limits are a symmetric +/-3 with expansion",
+      cn$ok && isTRUE(all.equal(cn$v_top, 3.3)) && isTRUE(all.equal(cn$v_bottom, -3.3)))
 check("2n: adjusted axis, offset is the run's dipLogR", cn$adjusted && cn$offset == -0.29)
 check("2n: hovering the reference line reads the dipLogR", abs(value_at_orange(cn, n2) - (-0.29)) < 0.03)
 check("2n: geometry differs from the standard plot's", abs(cn$top - cs$top) > 0.001 || abs(cn$height - cs$height) > 0.001)
 
-wide <- draw(tempfile(fileext = ".png"), 9, 8, "in", 300, 2, TRUE, 0.15, c(-3.4, 0.2, 2.7))
+wide <- draw(tempfile(fileext = ".png"), 9, 8, "in", 300, 3, TRUE, 0.15, c(-3.4, 0.2, 2.7))
 cw <- cnlr_plot_calibration(wide, c(-3.4, 0.2, 2.7), 0.15)
-check("2n: a data range beyond the clamp widens the limits (-4..3)",
-      isTRUE(all.equal(cw$v_top, 3 + 0.35)) && isTRUE(all.equal(cw$v_bottom, -4 - 0.35)))
+check("2n: a data range beyond the default widens the limits symmetrically (+/-4)",
+      isTRUE(all.equal(cw$v_top, 4.4)) && isTRUE(all.equal(cw$v_bottom, -4.4)))
 check("2n: ...and the reference line still reads the dipLogR", abs(value_at_orange(cw, wide) - 0.15) < 0.03)
+
+capped <- draw(tempfile(fileext = ".png"), 9, 8, "in", 300, 3, TRUE, 0, c(-0.3, 9.1))
+cc <- cnlr_plot_calibration(capped, c(-0.3, 9.1), 0)
+check("2n: the limits stop widening at the +/-5 cap",
+      isTRUE(all.equal(cc$v_top, 5.5)) && isTRUE(all.equal(cc$v_bottom, -5.5)))
 
 noline <- draw(tempfile(fileext = ".png"), 850, 999, "px", 96, 3, FALSE, -0.09, segs, line = FALSE)
 cl <- cnlr_plot_calibration(noline, segs, -0.09)
 check("no reference line: borders still calibrate, convention by shape (portrait -> standard)",
       cl$ok && cl$method == "borders-only" && !cl$adjusted && cl$v_top == 3.3)
-cl2 <- cnlr_plot_calibration(draw(tempfile(fileext = ".png"), 9, 8, "in", 300, 2, TRUE, -0.29, segs, line = FALSE), segs, -0.29)
-check("no reference line: landscape -> 2n convention", cl2$adjusted && cl2$v_top == 2.2 && cl2$offset == -0.29)
+cl2 <- cnlr_plot_calibration(draw(tempfile(fileext = ".png"), 9, 8, "in", 300, 3, TRUE, -0.29, segs, line = FALSE), segs, -0.29)
+check("no reference line: landscape -> 2n convention", cl2$adjusted && cl2$v_top == 3.3 && cl2$offset == -0.29)
 
-check("no data: limits fall back to the clamp",
-      cnlr_plot_calibration(n2, NULL, -0.29)$v_top == 2.2)
+check("no data: limits fall back to the default",
+      cnlr_plot_calibration(n2, NULL, -0.29)$v_top == 3.3)
 leg <- cnlr_plot_calibration(file.path(tempdir(), "nope.png"), segs, 0)
 check("missing file: the classic geometry, flagged not ok", !leg$ok && leg$method == "legacy" && leg$v_top == 3)
 

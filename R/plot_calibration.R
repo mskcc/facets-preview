@@ -9,8 +9,17 @@
 ###   standard  9.75x12 in / 850x999 px, y limits floor/ceiling of the segment
 ###             medians clamped to at least +/-3, raw cnlr on the axis, orange
 ###             line at dipLogR
-###   2n        9x8 in, clamp +/-2, axis is cnlr MINUS dipLogR (so the plot is
-###             centred), orange line at 0
+###   2n        9x8 in, axis is cnlr MINUS dipLogR (so the plot is centred),
+###             orange line at 0, and the limits are SYMMETRIC: +/-3 by default,
+###             widened in integer steps to fit the adjusted segment medians, at
+###             most +/-5. Points past the limit are squished to the edge and
+###             drawn darkorange2 rather than dropped, so they do not move it.
+###
+### The 2n rule changed (it used to be an asymmetric floor/ceiling clamped to
+### +/-2, computed from UNadjusted medians). Two symmetric conventions cannot be
+### told apart from the image alone -- both centre the line -- so PNGs written by
+### the older facets-suite-2n will read on the wrong scale until they are
+### regenerated. The durable fix is for the plot to record its own limits.
 ###
 ### Both use ggplot's default 5% axis expansion and theme_bw's panel border.
 ### So: find the first panel's border rows in the PNG, take the y limits from
@@ -100,20 +109,30 @@ cnlr_plot_calibration <- function(png_path, cnlr_median = NULL, dipLogR = NA_rea
   cm <- cm[is.finite(cm)]
   have_data <- length(cm) > 0
 
-  limits_for <- function(clamp) {
-    ymin <- if (have_data) min(floor(min(cm)), -clamp) else -clamp
-    ymax <- if (have_data) max(ceiling(max(cm)), clamp) else clamp
+  # The symmetric convention reads the medians in the space the plot draws them,
+  # i.e. after the dipLogR shift; the asymmetric one uses them raw.
+  cm_adj <- if (dip_known) cm - dipLogR else cm
+
+  limits_for <- function(hp) {
+    if (isTRUE(hp$symmetric)) {
+      lim  <- if (have_data) min(hp$cap, max(hp$clamp, ceiling(max(abs(cm_adj))))) else hp$clamp
+      ymin <- -lim
+      ymax <-  lim
+    } else {
+      ymin <- if (have_data) min(floor(min(cm)), -hp$clamp) else -hp$clamp
+      ymax <- if (have_data) max(ceiling(max(cm)), hp$clamp) else hp$clamp
+    }
     r <- ymax - ymin
     c(ymax + 0.05 * r, ymin - 0.05 * r)   # ggplot's default 5% expansion
   }
   # The two conventions, preferred order set by the plot's shape.
   hyps <- list(
-    list(name = "2n",       clamp = 2, adjusted = TRUE),
-    list(name = "standard", clamp = 3, adjusted = FALSE))
+    list(name = "2n",       clamp = 3, cap = 5, symmetric = TRUE,  adjusted = TRUE),
+    list(name = "standard", clamp = 3,          symmetric = FALSE, adjusted = FALSE))
   if (!landscape) hyps <- rev(hyps)
 
   result_for <- function(hp, method) {
-    lim <- limits_for(hp$clamp)
+    lim <- limits_for(hp)
     list(ok = TRUE, top = top, height = height, v_top = lim[1], v_bottom = lim[2],
          offset = if (hp$adjusted && dip_known) dipLogR else 0,
          adjusted = hp$adjusted, method = method)
@@ -123,7 +142,7 @@ cnlr_plot_calibration <- function(png_path, cnlr_median = NULL, dipLogR = NA_rea
   if (!is.na(geo$orange_row)) {
     f0 <- (geo$orange_row - geo$top_row + 0.5) / H
     errs <- vapply(hyps, function(hp) {
-      lim <- limits_for(hp$clamp)
+      lim <- limits_for(hp)
       line_value <- if (hp$adjusted) 0 else if (dip_known) dipLogR else NA_real_
       if (is.na(line_value)) return(Inf)
       abs((lim[1] - line_value) / (lim[1] - lim[2]) - f0)
@@ -136,7 +155,7 @@ cnlr_plot_calibration <- function(png_path, cnlr_median = NULL, dipLogR = NA_rea
     # the zero/dipLogR anchor and the panel for the scale of the preferred
     # convention, i.e. shift the limits so the line lands where it is drawn.
     hp  <- hyps[[1]]
-    lim <- limits_for(hp$clamp)
+    lim <- limits_for(hp)
     line_value <- if (hp$adjusted || !dip_known) 0 else dipLogR
     span  <- lim[1] - lim[2]
     v_top <- line_value + f0 * span

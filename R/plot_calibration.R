@@ -147,9 +147,13 @@ cnlr_plot_calibration <- function(png_path, cnlr_median = NULL, dipLogR = NA_rea
       if (is.na(line_value)) return(Inf)
       abs((lim[1] - line_value) / (lim[1] - lim[2]) - f0)
     }, numeric(1))
-    best <- which.min(errs)
-    if (is.finite(errs[best]) && errs[best] < 0.03) {
-      return(result_for(hyps[[best]], "orange-line"))
+    # Take the FIRST convention (preferred by the plot's shape) that explains
+    # the line, not the numerically closest one: near dipLogR = 0 both put the
+    # line at the centre and pixel noise would otherwise decide, flipping a
+    # standard plot onto the adjusted axis (or a 2n plot off it).
+    fits <- which(is.finite(errs) & errs < 0.03)
+    if (length(fits) > 0) {
+      return(result_for(hyps[[fits[1]]], "orange-line"))
     }
     # No convention explains the line with these limits: trust the line for
     # the zero/dipLogR anchor and the panel for the scale of the preferred

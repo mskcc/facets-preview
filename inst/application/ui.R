@@ -50,28 +50,60 @@ ui <-
         // Where the copy-number panel is (fractions of the image height) and
         // what its rows mean. The server calibrates this per plot from the PNG
         // itself (see cnlr_plot_calibration); these are the classic defaults
-        // until the first plot arrives. dipLogR = vTop - frac*(vTop-vBottom) + offset:
-        // the standard suite plots raw cnlr (offset 0); facets-suite-2n plots
-        // cnlr minus dipLogR, so the run's dipLogR is added back.
-        var calib = { top: 0.031, height: 0.1835, vTop: 3, vBottom: -3, offset: 0 };
+        // until the first plot arrives.
+        //   axis value = vTop - frac*(vTop-vBottom)   -- what the plot's y axis reads
+        //   dipLogR    = axis value + offset          -- what a refit's --dipLogR needs
+        // The standard suite plots raw cnlr, so the two are the same (offset 0,
+        // adjusted false). facets-suite-2n plots cnlr MINUS the fit's dipLogR
+        // (adjusted true): the axis is centred on the current dipLogR, so the
+        // raw dipLogR of a hovered level is the axis reading plus that dipLogR.
+        // The indicator shows the axis value so it agrees with the plot, and the
+        // dipLogR beside it when the two differ; a click sets the dipLogR.
+        var calib = { top: 0.031, height: 0.1835, vTop: 3, vBottom: -3, offset: 0, adjusted: false };
+        var hoverDipLogR = null;
 
+        function plotImage() {
+            return document.querySelector('#imageOutput_pngImage1 img');
+        }
         function fitCanvas() {
             canvas.width = overlay.clientWidth;
             canvas.height = overlay.clientHeight;
         }
         function applyCalibration() {
-            overlay.style.top = (calib.top * 100) + '%';
-            overlay.style.height = (calib.height * 100) + '%';
+            // Measure from the <img> itself, not its container: the container is
+            // a few pixels taller than an inline image (baseline slack), which
+            // would stretch the overlay by that much. Fall back to percentages of
+            // the container until an image is present.
+            var img = plotImage();
+            if (img && img.clientHeight > 0) {
+                overlay.style.top = (img.offsetTop + calib.top * img.clientHeight) + 'px';
+                overlay.style.height = (calib.height * img.clientHeight) + 'px';
+                overlay.style.width = img.clientWidth + 'px';
+            } else {
+                overlay.style.top = (calib.top * 100) + '%';
+                overlay.style.height = (calib.height * 100) + '%';
+                overlay.style.width = '100%';
+            }
             fitCanvas();
         }
+        // Re-measure once the image has its final size: after Shiny swaps in a
+        // new plot (the <img> may be replaced, so bind to the fresh one), when it
+        // finishes loading, and when the window is resized.
+        function watchImage() {
+            applyCalibration();
+            var img = plotImage();
+            if (img && !img.complete) img.addEventListener('load', applyCalibration, { once: true });
+        }
         applyCalibration();
+        $(document).on('shiny:value', function(e) {
+            if (e.name === 'imageOutput_pngImage1') setTimeout(watchImage, 0);
+        });
+        window.addEventListener('resize', applyCalibration);
 
         Shiny.addCustomMessageHandler('cnlrCalibration', function(c) {
-            calib = { top: c.top, height: c.height, vTop: c.v_top, vBottom: c.v_bottom, offset: c.offset };
-            // The image may still be loading when the message lands; size the
-            // canvas again once it has its final height.
-            applyCalibration();
-            $('#imageOutput_pngImage1 img').one('load', applyCalibration);
+            calib = { top: c.top, height: c.height, vTop: c.v_top, vBottom: c.v_bottom,
+                      offset: c.offset || 0, adjusted: !!c.adjusted };
+            watchImage();
         });
 
         overlay.addEventListener('mousemove', function(event) {
@@ -88,22 +120,26 @@ ui <-
             ctx.stroke();
 
             var frac = y / overlay.clientHeight;
-            var yValue = calib.vTop - frac * (calib.vTop - calib.vBottom) + calib.offset;
+            var axisValue = calib.vTop - frac * (calib.vTop - calib.vBottom);
+            hoverDipLogR = (axisValue + calib.offset).toFixed(2);
 
             indicator.style.top = (y - 10) + 'px';
             indicator.style.left = '80px';
-            indicator.textContent = yValue.toFixed(2);
+            indicator.textContent = calib.adjusted
+                ? axisValue.toFixed(2) + '  (dipLogR ' + hoverDipLogR + ')'
+                : hoverDipLogR;
         });
 
-        // Handle click to set the dipLogR value
+        // Handle click to set the dipLogR value (raw cnlr space, as the refit expects)
         overlay.addEventListener('click', function() {
-            var finalValue = indicator.textContent;
-            $('#textInput_newDipLogR').val(finalValue).trigger('change');
+            if (hoverDipLogR === null) return;
+            $('#textInput_newDipLogR').val(hoverDipLogR).trigger('change');
         });
 
         overlay.addEventListener('mouseleave', function() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             indicator.textContent = '';
+            hoverDipLogR = null;
         });
 
         // React to the dynamic_dipLogR switch being toggled

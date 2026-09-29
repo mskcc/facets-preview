@@ -1,16 +1,22 @@
 --- a/facetflow_service/settings.py
 +++ b/facetflow_service/settings.py
-@@ -284,3 +284,22 @@
+@@ -284,3 +284,26 @@
  FACETS_IRIS_WRAPPER = os.environ.get("FACETS_IRIS_WRAPPER")
  FACETS_IRIS_RLIBS = os.environ.get("FACETS_IRIS_RLIBS")
  FACETS_IRIS_REFIT_QUEUE = os.environ.get("FACETS_IRIS_REFIT_QUEUE")
 +
-+# 2n refits: the pinned facets_2n_cadence .sif that a queued 2n job runs under,
-+# and the directory holding the facets2n reference normal pools. The Shiny app
-+# reads these as FP_IRIS_2N_SIF / FP_IRIS_2N_REF_LIB_DIR; with them unset it
-+# refuses a 2n refit with an explanatory dialog rather than queueing a bad job.
++# 2n refits: the pinned facets_2n_cadence .sif a queued 2n job runs under, the
++# directory holding the facets2n reference normal pools, the R library INSIDE
++# that image (--facets2n-lib-path) and the singularity bind list. The Shiny app
++# reads these as FP_IRIS_2N_*. Every one is appended to the container
++# environment below whether or not it is set here, so a key absent from .env
++# arrives as "" rather than unset -- the app therefore treats set-but-empty as
++# unset and falls back to its own default. A missing .sif is the one case it
++# refuses outright, with an explanatory dialog, rather than queueing a bad job.
 +FACETS_IRIS_2N_SIF = os.environ.get("FACETS_IRIS_2N_SIF", "")
 +FACETS_IRIS_2N_REF_LIB_DIR = os.environ.get("FACETS_IRIS_2N_REF_LIB_DIR", "")
++FACETS_IRIS_2N_RLIBS = os.environ.get("FACETS_IRIS_2N_RLIBS", "")
++FACETS_IRIS_2N_BINDS = os.environ.get("FACETS_IRIS_2N_BINDS", "")
 +
 +# Host directory bind-mounted into every session container as /fp_logs. When set,
 +# the container writes a per-session log file there instead of to its stdout,
@@ -32,7 +38,7 @@
  from django.conf import settings
  from core.models import AccessLevel
  from django.contrib.auth import get_user_model
-@@ -47,7 +48,10 @@
+@@ -47,7 +48,12 @@
              f'FP_IRIS_RSCRIPT={settings.FACETS_IRIS_RSCRIPT}',
              f'FP_IRIS_WRAPPER={settings.FACETS_IRIS_WRAPPER}',
              f'FP_IRIS_RLIBS={settings.FACETS_IRIS_RLIBS}',
@@ -40,6 +46,8 @@
 +            f'FP_IRIS_REFIT_QUEUE={settings.FACETS_IRIS_REFIT_QUEUE}',
 +            f'FP_IRIS_2N_SIF={settings.FACETS_IRIS_2N_SIF}',
 +            f'FP_IRIS_2N_REF_LIB_DIR={settings.FACETS_IRIS_2N_REF_LIB_DIR}',
++            f'FP_IRIS_2N_RLIBS={settings.FACETS_IRIS_2N_RLIBS}',
++            f'FP_IRIS_2N_BINDS={settings.FACETS_IRIS_2N_BINDS}',
 +            f'FP_SESSION_ID={self.session_id}'
          ]
          mount_points = settings.MOUNT_POINTS.split(",")
@@ -127,12 +135,14 @@
      ports:
        - "8080:8080"
      environment:
-@@ -73,6 +93,9 @@
+@@ -73,6 +93,11 @@
        - FACETS_IRIS_WRAPPER=${FACETS_IRIS_WRAPPER}
        - FACETS_IRIS_RLIBS=${FACETS_IRIS_RLIBS}
        - FACETS_IRIS_REFIT_QUEUE=${FACETS_IRIS_REFIT_QUEUE}
 +      - FACETS_IRIS_2N_SIF=${FACETS_IRIS_2N_SIF}
 +      - FACETS_IRIS_2N_REF_LIB_DIR=${FACETS_IRIS_2N_REF_LIB_DIR}
++      - FACETS_IRIS_2N_RLIBS=${FACETS_IRIS_2N_RLIBS}
++      - FACETS_IRIS_2N_BINDS=${FACETS_IRIS_2N_BINDS}
 +      - FACETS_LOG_DIR=${FACETS_LOG_DIR}
  
      volumes:

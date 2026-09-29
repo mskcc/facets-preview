@@ -72,6 +72,13 @@ cc <- cnlr_plot_calibration(capped, c(-0.3, 9.1), 0)
 check("2n: the limits stop widening at the +/-5 cap",
       isTRUE(all.equal(cc$v_top, 5.5)) && isTRUE(all.equal(cc$v_bottom, -5.5)))
 
+near0 <- draw(tempfile(fileext = ".png"), 850, 999, "px", 96, 3, FALSE, -0.02, segs)
+cz <- cnlr_plot_calibration(near0, segs, -0.02)
+check("standard with dipLogR near 0: stays on the raw axis (shape breaks the tie, not pixel noise)",
+      cz$method == "orange-line" && !cz$adjusted && cz$offset == 0)
+czn <- cnlr_plot_calibration(draw(tempfile(fileext = ".png"), 9, 8, "in", 300, 3, TRUE, 0.02, segs), segs, 0.02)
+check("2n with dipLogR near 0: stays on the adjusted axis", czn$method == "orange-line" && czn$adjusted && czn$offset == 0.02)
+
 noline <- draw(tempfile(fileext = ".png"), 850, 999, "px", 96, 3, FALSE, -0.09, segs, line = FALSE)
 cl <- cnlr_plot_calibration(noline, segs, -0.09)
 check("no reference line: borders still calibrate, convention by shape (portrait -> standard)",

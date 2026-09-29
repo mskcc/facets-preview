@@ -521,6 +521,17 @@ function(input, output, session) {
     NA_character_
   }
 
+  # Sys.getenv(), but treats a set-but-EMPTY variable as unset. facetflow's
+  # facets_app.py appends every FP_IRIS_* var to the container environment
+  # unconditionally, so a key missing from the VM's .env arrives as "" rather
+  # than absent -- and Sys.getenv()'s own `unset` default only fires when the
+  # variable is genuinely absent. Without this the documented fallbacks below
+  # are dead code the moment the launcher patch is applied.
+  fp_getenv <- function(name, default) {
+    v <- Sys.getenv(name, "")
+    if (!nzchar(trimws(v))) default else trimws(v)
+  }
+
   # The cncf file get_cncf_table() would read for this run/type. Mirrors its
   # prefix + .cncf.edited.txt preference so we can report the real filename.
   cncf_file_for <- function(fit_type, selected_run) {
@@ -672,8 +683,8 @@ function(input, output, session) {
       return(list(error = paste0("The configured facets2n container image does not exist:\n\n", sif)))
     }
 
-    lib_dir <- Sys.getenv("FP_IRIS_2N_REF_LIB_DIR",
-                          "/data1/core006/ccs/shared/resources/impact_2n/unmatched_pools")
+    lib_dir <- fp_getenv("FP_IRIS_2N_REF_LIB_DIR",
+                         "/data1/core005/facetflow/fp/lib/unmatched_pools")
     if (!dir.exists(lib_dir)) {
       return(list(error = paste0(
         "The facets2n reference normal directory does not exist:\n\n", lib_dir,
@@ -719,8 +730,13 @@ function(input, output, session) {
     refit_name  <- paste0("refit_", refit_tag)
     staging_dir <- file.path(pair_dir, refit_name)
 
-    binds <- Sys.getenv("FP_IRIS_2N_BINDS", "/data1/core005,/data1/core006")
+    binds <- fp_getenv("FP_IRIS_2N_BINDS", "/data1/core005,/data1/core006")
     bind_flags <- paste(sprintf("-B %s", trimws(strsplit(binds, ",")[[1]])), collapse = " ")
+
+    # The R library INSIDE the image, where facets2n is installed. Mirrors the
+    # standard refit's FP_IRIS_RLIBS -> --facets-lib-path; the default is where
+    # facets_2n_cadence has put it since 0.1.0.
+    iris_2n_rlibs <- fp_getenv("FP_IRIS_2N_RLIBS", "/usr/local/lib/R/site-library")
 
     splitter <- system.file("scripts", "split_facets_2n.py", package = "facetsPreview")
     if (!nzchar(splitter) || !file.exists(splitter)) {
@@ -746,7 +762,7 @@ function(input, output, session) {
       '--purity-min-nhet {purity_min_nhet} ',
       cval_flags,
       diplogr_flag,
-      '--facets2n-lib-path /usr/local/lib/R/site-library ',
+      '--facets2n-lib-path {iris_2n_rlibs} ',
       '--reference-snp-pileup {refs$pileup} ',
       '--reference-loess-file {refs$loess} ',
       '--targetFile {refs$targets} ',
@@ -781,6 +797,9 @@ function(input, output, session) {
   # plot's y limits derive from the run's segment medians (its cncf) and the
   # orange reference line sits at 0 (2n, axis = cnlr - dipLogR) or at dipLogR
   # (standard, raw cnlr); cnlr_plot_calibration works that out from the PNG.
+  # `adjusted` tells the overlay the axis is centred on the fit's dipLogR, so
+  # it shows the axis reading (what the plot says) alongside the raw dipLogR
+  # (axis + offset, what a refit needs) instead of the raw value alone.
   # Any failure leaves the classic geometry in place rather than breaking the
   # render.
   send_cnlr_calibration <- function(png_filename, fit_type, run) {
@@ -794,7 +813,7 @@ function(input, output, session) {
       } else NULL
       cnlr_plot_calibration(png_filename, cm, suppressWarnings(as.numeric(dip)))
     }, error = function(e) cnlr_calibration_legacy())
-    session$sendCustomMessage("cnlrCalibration", calib[c("top", "height", "v_top", "v_bottom", "offset")])
+    session$sendCustomMessage("cnlrCalibration", calib[c("top", "height", "v_top", "v_bottom", "offset", "adjusted")])
     invisible(calib)
   }
 

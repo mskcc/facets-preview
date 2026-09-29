@@ -166,6 +166,13 @@ check("--only with an unknown class is rejected and leaves the staging dir alone
 ## 4. build_refit_cmd_2n: one class per refit, flags keyed by class
 ## ---------------------------------------------------------------------------
 
+# build_refit_cmd_2n reads its environment through fp_getenv (set-but-empty is
+# treated as unset), which lives with the other fp_ helpers, so lift that first.
+start <- grep("^  fp_getenv <- function", src)
+stopifnot(length(start) == 1)
+end   <- start + which(src[(start + 1):length(src)] == "  }")[1]
+eval(parse(text = paste(src[start:end], collapse = "\n")), envir = globalenv())
+
 start <- grep("^  build_refit_cmd_2n <- function", src)
 stopifnot(length(start) == 1)
 end   <- start + which(src[(start + 1):length(src)] == "  }")[1]
@@ -217,6 +224,71 @@ check("clinical: exactly one refit dir, under clinical/",
       identical(rc$refit_dirs, file.path(pair, "clinical", "refit_c75_pc150_diplogR_-0.2")))
 check("the note names the class subtree the fits go to",
       grepl("clinical fits will be written to", rc$note, fixed = TRUE))
+
+## ---------------------------------------------------------------------------
+## 5. Environment handling. facetflow's facets_app.py appends every FP_IRIS_2N_*
+##    var to the container environment whether or not .env sets it, so an
+##    omitted key arrives as "" rather than absent -- and Sys.getenv()'s own
+##    `unset` default only fires when the variable is genuinely absent. Every
+##    read therefore goes through fp_getenv, or the documented defaults would be
+##    dead code on the deployed VM.
+## ---------------------------------------------------------------------------
+
+Sys.unsetenv("FP_TEST_ENV_PROBE")
+check("fp_getenv: an absent variable takes the default",
+      identical(fp_getenv("FP_TEST_ENV_PROBE", "fallback"), "fallback"))
+Sys.setenv(FP_TEST_ENV_PROBE = "")
+check("fp_getenv: set-but-EMPTY is treated as unset",
+      identical(fp_getenv("FP_TEST_ENV_PROBE", "fallback"), "fallback"))
+Sys.setenv(FP_TEST_ENV_PROBE = "   ")
+check("fp_getenv: whitespace-only is treated as unset",
+      identical(fp_getenv("FP_TEST_ENV_PROBE", "fallback"), "fallback"))
+Sys.setenv(FP_TEST_ENV_PROBE = "  /some/path  ")
+check("fp_getenv: a real value is returned trimmed",
+      identical(fp_getenv("FP_TEST_ENV_PROBE", "fallback"), "/some/path"))
+Sys.unsetenv("FP_TEST_ENV_PROBE")
+
+# --facets2n-lib-path is configurable (FP_IRIS_2N_RLIBS), mirroring the standard
+# refit's FP_IRIS_RLIBS -> --facets-lib-path.
+Sys.setenv(FP_IRIS_2N_RLIBS = "/opt/R/custom-site-library")
+r_lib <- build_refit_cmd_2n(ptag, pair, "research", "libpath", FALSE, NA, 25, 15, 250, 35,
+                            NULL, 100, 50)
+check("FP_IRIS_2N_RLIBS drives --facets2n-lib-path",
+      grepl("--facets2n-lib-path /opt/R/custom-site-library ", paste(r_lib$script, collapse = "\n"),
+            fixed = TRUE))
+
+Sys.setenv(FP_IRIS_2N_RLIBS = "")
+r_lib0 <- build_refit_cmd_2n(ptag, pair, "research", "libpath0", FALSE, NA, 25, 15, 250, 35,
+                             NULL, 100, 50)
+check("an empty FP_IRIS_2N_RLIBS falls back to the in-image default",
+      grepl("--facets2n-lib-path /usr/local/lib/R/site-library ",
+            paste(r_lib0$script, collapse = "\n"), fixed = TRUE))
+Sys.unsetenv("FP_IRIS_2N_RLIBS")
+
+# Same contract for the bind list.
+Sys.setenv(FP_IRIS_2N_BINDS = "/mnt/one,/mnt/two")
+r_b <- build_refit_cmd_2n(ptag, pair, "research", "binds", FALSE, NA, 25, 15, 250, 35,
+                          NULL, 100, 50)
+check("FP_IRIS_2N_BINDS drives the singularity -B flags",
+      grepl("-B /mnt/one -B /mnt/two", paste(r_b$script, collapse = "\n"), fixed = TRUE))
+
+Sys.setenv(FP_IRIS_2N_BINDS = "")
+r_b0 <- build_refit_cmd_2n(ptag, pair, "research", "binds0", FALSE, NA, 25, 15, 250, 35,
+                           NULL, 100, 50)
+check("an empty FP_IRIS_2N_BINDS falls back to the core005/core006 default",
+      grepl("-B /data1/core005 -B /data1/core006", paste(r_b0$script, collapse = "\n"), fixed = TRUE))
+Sys.unsetenv("FP_IRIS_2N_BINDS")
+
+# An empty ref-lib-dir must not silently become the default and then fail on a
+# blank path -- it falls back, and the fallback is what gets reported.
+Sys.setenv(FP_IRIS_2N_REF_LIB_DIR = "")
+r_nolib <- build_refit_cmd_2n(ptag, pair, "research", "nolib", FALSE, NA, 25, 15, 250, 35,
+                              NULL, 100, 50)
+check("an empty FP_IRIS_2N_REF_LIB_DIR names the default dir, not a blank path",
+      !is.null(r_nolib$error) &&
+        grepl("/data1/core005/facetflow/fp/lib/unmatched_pools", r_nolib$error, fixed = TRUE))
+Sys.setenv(FP_IRIS_2N_REF_LIB_DIR = lib)
+
 setwd(old_wd)
 
 cat("\n", n_pass, "passed,", n_fail, "failed\n")

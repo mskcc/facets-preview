@@ -84,18 +84,34 @@ It does three things:
   and mode, and the app writes `session <token> OPENED/CLOSED` markers, so a
   container serving several sessions is still readable per session.
 - **Passes the 2n refit settings** (`FACETS_IRIS_2N_SIF`,
-  `FACETS_IRIS_2N_REF_LIB_DIR`) through to the app.
+  `FACETS_IRIS_2N_REF_LIB_DIR`, `FACETS_IRIS_2N_RLIBS`, `FACETS_IRIS_2N_BINDS`)
+  through to the app.
 
 Then add to `.env`:
 
 ```
 FACETS_LOG_DIR=/data1/core005/facetflow_dev/logs
-FACETS_IRIS_2N_SIF=/data1/core006/resources/singularity_image_library/price0416-facets_2n_cadence-0.1.8.img
-FACETS_IRIS_2N_REF_LIB_DIR=/data1/core006/ccs/shared/resources/impact_2n/unmatched_pools
+FACETS_IRIS_2N_SIF=/data1/core006/resources/singularity_image_library/price0416-facets_2n_cadence-0.2.0.img
+FACETS_IRIS_2N_REF_LIB_DIR=/data1/core005/facetflow/fp/lib/unmatched_pools
+FACETS_IRIS_2N_RLIBS=/usr/local/lib/R/site-library
+FACETS_IRIS_2N_BINDS=/data1/core005,/data1/core006
 ```
 
-and `mkdir -p /data1/core005/facetflow_dev/logs` with group write for the
-container user, then `docker compose up -d --build web`.
+then `mkdir -p /data1/core005/facetflow_dev/logs` with group write for the
+container user, and `docker compose up -d --build web`.
+
+The last two keys are the R library **inside** the image (`--facets2n-lib-path`,
+where facets2n is installed) and the singularity bind list. Both have working
+defaults baked into the app, so they only need setting if the image layout or the
+mounts change -- but they are passed through so that stays a config change rather
+than a rebuild.
+
+`facets_app.py` appends every one of these to the container environment whether
+or not `.env` sets it, so an omitted key arrives as `""` rather than unset. The
+app therefore treats set-but-empty as unset (`fp_getenv`) and falls back to its
+own default; without that the documented defaults would be dead code the moment
+this patch is applied. `FACETS_IRIS_2N_SIF` is the one key with no default -- an
+empty value is refused with an explanatory dialog.
 
 Verify on the next session: `docker inspect <session> --format '{{.HostConfig.LogConfig}}'`
 shows the cap, `docker logs <session>` holds only the pointer line, and the log
@@ -111,9 +127,10 @@ No launcher change. Three things to know in `facetflow_dev`:
   `<pair>/<class>/refit_<tag>/` and deletes the other class's files. The wrapper
   flags it relies on (`--clinical-dipLogR`, `--research-*-cval`,
   `--clinical-*-cval`) exist in facets-suite-2n ≥ 3.0.0, i.e. in
-  `facets_2n_cadence:0.1.8`. The refit host still needs `python3` on `PATH` for
-  the split (it already did). The queue, `refit_manager.nf` and `FACETS_IRIS_*`
-  settings are unchanged.
+  `facets_2n_cadence:0.1.8` and later. **The deployed pin is now 0.2.0**, whose
+  full flag set was verified against the queued command (see §3). The refit host
+  still needs `python3` on `PATH` for the split (it already did). The queue and
+  `refit_manager.nf` are unchanged; `FACETS_IRIS_*` gains the four 2n keys.
 - **Repository dropdown** on the Load Samples page (VM mode only) expands DMP ids
   against one of four trees. Defaults are baked into the app; each can be
   overridden in the shared `global.config` (`$FP_USER_BASE_WORKDIR/global.config`,
@@ -154,8 +171,8 @@ Pull it into the CADENCE singularity library, using the name Nextflow expects, s
 one image serves both the pipeline and the app. `conf/iris.config:20` sets
 `singularity_library = '/data1/core006/resources/singularity_image_library'`
 (wired to `libraryDir` at :62), and Nextflow looks images up there by a name
-mangled from the container URI: `docker://price0416/facets_2n_cadence:0.1.8`
-becomes `price0416-facets_2n_cadence-0.1.8.img`. An arbitrarily named `.sif` in
+mangled from the container URI: `docker://price0416/facets_2n_cadence:0.2.0`
+becomes `price0416-facets_2n_cadence-0.2.0.img`. An arbitrarily named `.sif` in
 that directory is invisible to Nextflow, which then pulls a duplicate into
 `cacheDir` -- several such strays already sit there unused.
 
@@ -167,25 +184,56 @@ during the 2026-09-08 session. Check the bot's cron environment for the same.
 # the container the queued 2n job runs under, named for Nextflow's libraryDir
 env -u SINGULARITY_DOCKER_USERNAME -u SINGULARITY_DOCKER_PASSWORD \
   singularity pull \
-  /data1/core006/resources/singularity_image_library/price0416-facets_2n_cadence-0.1.8.img \
-  docker://price0416/facets_2n_cadence:0.1.8
+  /data1/core006/resources/singularity_image_library/price0416-facets_2n_cadence-0.2.0.img \
+  docker://price0416/facets_2n_cadence:0.2.0
 
-# confirm the image (0.1.8 was built from 3.3.0 master; 3.3.1 needs no respin --
-# nothing the pipeline executes changed -- so 3.3.0 here is expected)
+# the wrapper flags the app's queued command depends on. Both Dockerfiles clone
+# facets-suite-2n's main TIP, not a pinned SHA, so a new image can silently drop
+# or rename one; a missing flag fails inside the container and the app, which
+# only queued a file, never hears about it.
 singularity exec \
-  /data1/core006/resources/singularity_image_library/price0416-facets_2n_cadence-0.1.8.img \
-  Rscript -e 'cat(as.character(packageVersion("facetsPreview")), as.character(packageVersion("facetsSuite")), "\n")'
+  /data1/core006/resources/singularity_image_library/price0416-facets_2n_cadence-0.2.0.img \
+  /usr/bin/facets-suite/run-facets-wrapper.R --help 2>/dev/null > /tmp/fs2n_help.txt
+for f in --everything --legacy-output --clinical --MandUnormal --refX --genome \
+         --seed --counts-file --sample-id --snp-window-size --normal-depth \
+         --min-nhet --purity-min-nhet --clinical-purity-cval \
+         --clinical-hisens-cval --research-purity-cval --research-hisens-cval \
+         --clinical-dipLogR --dipLogR --facets2n-lib-path \
+         --reference-snp-pileup --reference-loess-file --targetFile --directory; do
+  grep -qE -- "$f([^-A-Za-z]|$)" /tmp/fs2n_help.txt || echo "MISSING: $f"
+done
 
-# the facets2n reference normal pools (18 files: cv3/4/5/6/7 solid + heme)
+# and that FACETS_IRIS_2N_RLIBS still names where facets2n actually lives
+singularity exec \
+  /data1/core006/resources/singularity_image_library/price0416-facets_2n_cadence-0.2.0.img \
+  ls -d /usr/local/lib/R/site-library/facets2n
+
+# the facets2n reference normal pools (18 files: cv3/4/5/6/7 solid + heme), into
+# the refit manager's own lib tree -- the queued job runs on the host that
+# watches that queue, and /data1/core005 is already bound into the container and
+# mounted into the app's, so one location serves both ends with no path
+# translation. Run from a directory the copying account can read.
 cp <cadence>/impact_2n/nf_impact/lib/cv*_reference_normals_r1.snp_pileup.gz \
    <cadence>/impact_2n/nf_impact/lib/cv*_reference_normals_r1.loess.txt \
    <cadence>/impact_2n/nf_impact/lib/cv*picard_targets.interval_list \
-   /data1/core006/ccs/shared/resources/impact_2n/unmatched_pools/
+   /data1/core005/facetflow/fp/lib/unmatched_pools/
 ```
 
 The app picks the set from the tumor id's assay and panel version (`-IM6` → cv6
 solid, `-IH4` → cv4 heme) exactly as `facets_subwf_2n.nf` does. An incomplete set
 is refused with a dialog naming the missing files rather than run partially.
+Coverage is solid cv3/5/6/7 and heme cv3/4, which is every real DMP assay suffix;
+the targets filename is bare for solid cv3/5/6 but infixed for cv7 and for both
+heme versions, and the resolver's fallback to the bare name is deliberately
+withheld from heme so an IH sample can never pick up solid targets.
+
+The execution host needs `singularity` and `python3` on `PATH` (the split step).
+`refit_manager.nf` runs the queued script with a bare `./<script>` -- no module
+load, no `beforeScript` -- so both must be resolvable from the environment the
+listener process itself inherited, not merely from a fresh login shell. Both are
+under `/usr/bin` on isvfpprod, and `split_facets_2n.py` imports only `os`,
+`shutil` and `sys` with no version-sensitive syntax, so the stock interpreter is
+enough.
 
 ## 4. Ordering with the CADENCE containers
 
@@ -194,7 +242,9 @@ and `nf_impact_autoqc_2n` (both Dockerfiles clone master tip at build).
 **3.3.1 changes nothing the pipeline executes** (`update_best_fit_status` was
 refactored onto `resolve_best_fit_standard` with identical logic; the rest is
 Shiny-side), so no respin is needed for it. The 3.3.0 notes below still apply if
-the 0.1.8 / 0.1.1 respins have not happened yet. 3.3.0 changed pipeline-executed code — `resolve_best_fit_2n` now excludes ultra
+the 0.1.8 / 0.1.1 respins have not happened yet -- though `facets_2n_cadence` has
+since moved on to **0.2.0** (2026-09-28), which is what the app now pins, so the
+0.1.8 respin step is historical. 3.3.0 changed pipeline-executed code — `resolve_best_fit_2n` now excludes ultra
 (rule 15) and `metadata_init_2n` canonicalizes `path` (rule 17) — so after
 pushing:
 

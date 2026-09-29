@@ -1,4 +1,4 @@
-# Deploying facets-preview 3.3.1
+# Deploying facets-preview 3.3.2
 
 Two halves: the app image (this repo) and the facetflow session launcher (the
 `facetflow_service` checkout on the VM). The launcher files there are root-owned,
@@ -12,7 +12,7 @@ time. Only `run_fp.sh` and `fp_config.json` come from the local build context.
 
 Building before pushing therefore produces a **mislabeled hybrid**: the new
 entrypoint with the OLD app code, and an image whose `FACETS_PREVIEW_VERSION`
-says 3.3.1 while the installed package still reports the previous version. The
+says 3.3.2 while the installed package still reports the previous version. The
 2n container fails loudly instead (its baked sanity check asserts the `_2n`
 entry points), but the app image has no such guard.
 
@@ -25,13 +25,13 @@ git push origin master
 ```bash
 docker buildx build --builder multiarch \
   --platform linux/amd64,linux/arm64 \
-  -t price0416/fp_docker:3.3.1 -t price0416/fp_docker:dev \
+  -t price0416/fp_docker:3.3.2 -t price0416/fp_docker:dev \
   --push Docker/
 ```
 
 Multi-arch requires `--push` — a manifest list cannot be `--load`ed into the
 local daemon. For a local smoke test build single-arch instead:
-`docker --context=default buildx build --builder default --load --platform linux/amd64 -t price0416/fp_docker:3.3.1 Docker/`.
+`docker --context=default buildx build --builder default --load --platform linux/amd64 -t price0416/fp_docker:3.3.2 Docker/`.
 If the `multiarch` builder cannot reach the network (it has failed this way
 before), that single-arch form is the fallback.
 
@@ -51,12 +51,12 @@ the VM, so a fresh push to the same tag is silently ignored and sessions keep
 starting the stale image.
 
 ```bash
-ssh isvfpdev 'docker pull price0416/fp_docker:3.3.1 && docker pull price0416/fp_docker:dev'
-ssh isvfpdev "docker image inspect price0416/fp_docker:dev --format '{{.Config.Env}}'"   # expect FACETS_PREVIEW_VERSION=3.3.1
+ssh isvfpdev 'docker pull price0416/fp_docker:3.3.2 && docker pull price0416/fp_docker:dev'
+ssh isvfpdev "docker image inspect price0416/fp_docker:dev --format '{{.Config.Env}}'"   # expect FACETS_PREVIEW_VERSION=3.3.2
 ```
 
 Already-running sessions keep the old image; only sessions created after the pull
-get 3.3.1. Consider pinning `FACETS_IMAGE` in `.env` to `price0416/fp_docker:3.3.1`
+get 3.3.2. Consider pinning `FACETS_IMAGE` in `.env` to `price0416/fp_docker:3.3.2`
 rather than the floating `:dev`, so a stale local copy can never go unnoticed.
 
 ## 2. Apply the facetflow launcher patch
@@ -116,6 +116,18 @@ empty value is refused with an explanatory dialog.
 Verify on the next session: `docker inspect <session> --format '{{.HostConfig.LogConfig}}'`
 shows the cap, `docker logs <session>` holds only the pointer line, and the log
 file appears under the host log dir.
+
+### What 3.3.2 adds on the VM side
+
+The 2n refit's execution environment is now fully config-driven. `FP_IRIS_2N_RLIBS`
+(the R library inside the image, i.e. `--facets2n-lib-path`) was a hardcoded
+literal; `FP_IRIS_2N_BINDS` was read from the environment but never passed through
+the launcher, so it could only ever be its default. Both are now in the patch and
+in `.env`. Every `FP_IRIS_2N_*` read goes through `fp_getenv`, which treats
+set-but-empty as unset -- necessary because `facets_app.py` appends each key
+whether or not `.env` defines it. The reference-pool default also moved to
+`/data1/core005/facetflow/fp/lib/unmatched_pools`. Nothing the pipeline executes
+changed, so no container respin is needed.
 
 ### What 3.3.1 adds on the VM side
 

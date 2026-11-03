@@ -150,6 +150,59 @@ fp_personal_path <- function() getOption("fp.personal_file")
 
 is_vm_mode <- function() identical(Sys.getenv("FP_MODE", ""), "vm")
 
+# --- facetflow login check (VM mode only) -------------------------------------
+# facetflow passes FP_AUTH_VERIFY_URL when it wants sessions gated. Browser
+# cookies are not port-scoped, so facetflow's Django `sessionid` cookie reaches
+# this container too; we hand it back to facetflow, which says whether the
+# visitor is logged in and owns FP_SESSION_ID. Local runs never gate.
+fp_auth_enabled <- function() is_vm_mode() && nzchar(Sys.getenv("FP_AUTH_VERIFY_URL", ""))
+
+fp_cookie_value <- function(cookie_header, name) {
+  if (is.null(cookie_header) || !nzchar(cookie_header)) return("")
+  parts <- trimws(strsplit(cookie_header, ";", fixed = TRUE)[[1]])
+  hit <- parts[startsWith(parts, paste0(name, "="))]
+  if (length(hit) == 0) "" else sub(paste0("^", name, "="), "", hit[1])
+}
+
+# Returns list(ok=, status=<http status or NA>, user=<username or "">).
+fp_verify_login <- function(cookie_header) {
+  sid <- fp_cookie_value(cookie_header, "sessionid")
+  if (!nzchar(sid)) return(list(ok = FALSE, status = NA_integer_, user = ""))
+  res <- tryCatch(
+    httr::GET(Sys.getenv("FP_AUTH_VERIFY_URL"),
+              query = list(session = Sys.getenv("FP_SESSION_ID", "")),
+              httr::set_cookies(sessionid = sid),
+              httr::timeout(5)),
+    error = function(e) { message("[FP] auth check failed: ", conditionMessage(e)); NULL })
+  if (is.null(res)) return(list(ok = FALSE, status = NA_integer_, user = ""))
+  status <- httr::status_code(res)
+  user <- ""
+  if (status == 200) {
+    body <- tryCatch(jsonlite::fromJSON(httr::content(res, as = "text", encoding = "UTF-8")),
+                     error = function(e) list())
+    user <- as.character(body$username %||% "")
+  }
+  # The container belongs to FP_USER_ID; a different user is never let in.
+  ok <- status == 200 && identical(tolower(user), tolower(Sys.getenv("FP_USER_ID", "")))
+  list(ok = ok, status = status, user = user)
+}
+
+# Deep-link params (?sample=<DMP id>&repo=<key>), re-encoded for facetflow's
+# sign-in link so the sample still opens after login.
+fp_deeplink_query <- function(url_search) {
+  q <- shiny::parseQueryString(url_search %||% "")
+  q <- q[intersect(names(q), c("sample", "repo"))]
+  if (length(q) == 0) return("")
+  paste0("?", paste0(names(q), "=", vapply(q, utils::URLencode, "", reserved = TRUE), collapse = "&"))
+}
+
+# Repository key for a deep-linked sample: explicit ?repo= wins, otherwise the
+# panel in the tumor id (-IH -> impact_heme, else impact).
+fp_deeplink_repo <- function(sample_id, repo = NULL) {
+  if (!is.null(repo) && nzchar(repo)) return(tolower(trimws(repo)))
+  if (grepl("^[A-Z]-\\d{7}-T\\d{2}-IH", sample_id)) "impact_heme" else "impact"
+}
+
 get_vm_repo_defaults <- function() {
   d <- getOption("fp.default_repo_paths", default = NULL)
   if (is.null(d)) list(impact="", tcga="", tempo="") else d
@@ -237,6 +290,68 @@ function(input, output, session) {
     message(sprintf("[FP] session %s CLOSED user=%s",
                     session$token, Sys.getenv("FP_USER_ID", "unknown")))
   })
+
+  # facetflow login gate (VM mode only). Fails closed: on anything but a
+  # verified owner we show a sign-in modal and register nothing else.
+  if (fp_auth_enabled()) {
+    auth <- fp_verify_login(session$request$HTTP_COOKIE)
+    if (!isTRUE(auth$ok)) {
+      message(sprintf("[FP] session %s AUTH DENIED status=%s user=%s",
+                      session$token, auth$status, auth$user))
+      facetflow_url <- sub("/+$", "", Sys.getenv("FP_FACETFLOW_URL", ""))
+      sign_in_url <- paste0(facetflow_url, "/sessions/open/", Sys.getenv("FP_SESSION_ID", ""), "/",
+                            fp_deeplink_query(isolate(session$clientData$url_search)))
+      showModal(modalDialog(
+        title = "Sign in to FacetFlow",
+        if (isTRUE(auth$status %in% c(200L, 403L)))
+          "This Facets Preview session belongs to another user."
+        else
+          "Please sign in to FacetFlow to open this Facets Preview session.",
+        footer = if (nzchar(facetflow_url))
+          tags$a(href = sign_in_url, class = "btn btn-primary", "Sign in to FacetFlow"),
+        easyClose = FALSE))
+      return(invisible(NULL))
+    }
+    message(sprintf("[FP] session %s AUTH OK user=%s", session$token, auth$user))
+  }
+
+  # Deep link (VM mode only): ?sample=<DMP id>[&repo=<key>] loads the sample and
+  # opens the PNG view, as if the user had added it by DMP id and clicked its row.
+  # Waits for values$config, i.e. until facets qc / facetsSuite are loaded.
+  if (is_vm_mode()) {
+    deeplink <- shiny::parseQueryString(isolate(session$clientData$url_search) %||% "")
+    deeplink_pending <- reactiveVal(!is.null(deeplink$sample) && nzchar(deeplink$sample))
+    observe({
+      req(deeplink_pending(), values$config)
+      deeplink_pending(FALSE)
+      isolate({
+        sample_id <- trimws(deeplink$sample)
+        pat <- dmp_id_patterns()
+        if (!grepl(pat$short, sample_id) && !grepl(pat$full, sample_id)) {
+          showNotification(paste("Invalid sample ID in link:", sample_id), type = "error", duration = NULL)
+          return()
+        }
+        repo <- fp_deeplink_repo(sample_id, deeplink$repo)
+        reg <- get_vm_repositories()
+        entry <- reg[reg$key == repo, , drop = FALSE]
+        if (nrow(entry) == 0) {
+          showNotification(paste0("Unknown repository '", repo, "'. Use one of: ",
+                                  paste(reg$key, collapse = ", ")), type = "error", duration = NULL)
+          return()
+        }
+        r <- resolve_repo_sample_path(sample_id, entry$base)
+        if (is.null(r$path)) {
+          showNotification(paste0(r$error, " (", entry$label, ")"), type = "error", duration = NULL)
+          updateNavbarPage(session, "navbarPage1", selected = "tabPanel_sampleInput")
+          return()
+        }
+        message(sprintf("[FP] session %s DEEPLINK sample=%s repo=%s", session$token, sample_id, repo))
+        updateTextAreaInput(session, "textAreaInput_samplesInput", value = r$path)
+        load_samples_text(r$path)
+        if (isTRUE(values$samples_ready)) open_manifest_row(1)
+      })
+    })
+  }
 
   # In VM mode warnings go to the session log as they happen rather than being
   # buffered to the end of a top-level call, where they are easy to misattribute.
@@ -1236,7 +1351,9 @@ function(input, output, session) {
     values$submitted_refits <- c()
   })
 
-  observeEvent(input$button_samplesInput, {
+  # Load the manifest from newline/space/comma-separated sample paths. Called by
+  # the Load Samples button and by the VM deep-link autoload.
+  load_samples_text <- function(input_text) {
 
     values$samples_ready <- FALSE
     values$samples_loading <- TRUE
@@ -1245,8 +1362,6 @@ function(input, output, session) {
 
     #print("button_samplesInput-1")
 
-    # Get the input from textAreaInput_samplesInput and clean it up
-    input_text <- input$textAreaInput_samplesInput
 
     #print(input_text)
 
@@ -1377,6 +1492,10 @@ function(input, output, session) {
 
     values$samples_loading <- FALSE
     values$samples_ready <- is.data.frame(values$manifest_metadata) && nrow(values$manifest_metadata) > 0
+  }
+
+  observeEvent(input$button_samplesInput, {
+    load_samples_text(input$textAreaInput_samplesInput)
   })
 
 
@@ -2272,13 +2391,15 @@ function(input, output, session) {
 
 
 
-  observeEvent(input$datatable_samples_rows_selected, {
+  # Open one manifest row in Review Fits. Called on a row click and by the VM
+  # deep-link autoload (?sample=...), which has no client-side row selection.
+  open_manifest_row <- function(row) {
 
     skipSampleChange(TRUE)
 
-    selected_sample = paste(unlist(values$manifest_metadata[input$datatable_samples_rows_selected,1]), collapse="")
-    selected_sample_path = paste(unlist(values$manifest_metadata[input$datatable_samples_rows_selected,2]), collapse="")
-    selected_sample_num_fits = values$manifest_metadata[input$datatable_samples_rows_selected,4]
+    selected_sample = paste(unlist(values$manifest_metadata[row,1]), collapse="")
+    selected_sample_path = paste(unlist(values$manifest_metadata[row,2]), collapse="")
+    selected_sample_num_fits = values$manifest_metadata[row,4]
 
     # VM: do not do any mount/mapping logic — just use the path as-is
     if (identical(Sys.getenv("FP_MODE", ""), "vm")) {
@@ -2574,6 +2695,10 @@ function(input, output, session) {
     shinyjs::delay(2500, {  # Adding some delay here because if we turn this off too soon the sample input field is still updating and it will double-load data.
       skipSampleChange(FALSE)
     })
+  }
+
+  observeEvent(row, {
+    open_manifest_row(row)
   })
 
 

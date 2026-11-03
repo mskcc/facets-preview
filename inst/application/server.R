@@ -2697,8 +2697,8 @@ function(input, output, session) {
     })
   }
 
-  observeEvent(row, {
-    open_manifest_row(row)
+  observeEvent(input$datatable_samples_rows_selected, {
+    open_manifest_row(input$datatable_samples_rows_selected)
   })
 
 

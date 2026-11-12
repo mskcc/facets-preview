@@ -88,66 +88,66 @@ run_policy <- function(sample_path, policy, fit_to_use = NA) {
   res
 }
 
-## ---- case 1: human best A, autoQC best B -> autoqc: B, ruleset: A ----
+## ---- case 1: human best A, autoQC best B -> autoqc: B, overall: A ----
 d <- make_sample(c("default", "alt_dipLogR_-0.2"), list(
   manifest_row(d0 <- ".", "reviewed_best_fit", "alt_dipLogR_-0.2", HUMAN, "2026-01-02 10:00:00", reviewer_set_purity = "0.77"),
   manifest_row(".", "auto_qc_best_fit", "default", AUTOQC, "2026-01-03 10:00:00"),
   manifest_row(".", "auto_qc_pass", "alt_dipLogR_-0.2", AUTOQC, "2026-01-03 10:00:00")))
-r_a <- run_policy(d, "autoqc"); r_r <- run_policy(d, "ruleset")
+r_a <- run_policy(d, "autoqc"); r_r <- run_policy(d, "overall")
 check("case1 autoqc picks autoQC's fit",      r_a$fit_name[1] == "default")
 check("case1 autoqc review row is autoQC's",  r_a$reviewed_by[1] == AUTOQC)
-check("case1 ruleset picks human's fit",      r_r$fit_name[1] == "alt_dipLogR_-0.2")
-check("case1 ruleset review row is human's",  r_r$reviewed_by[1] == HUMAN)
-check("case1 ruleset purity from human row",  r_r$purity[1] == "0.77")
+check("case1 overall picks human's fit",      r_r$fit_name[1] == "alt_dipLogR_-0.2")
+check("case1 overall review row is human's",  r_r$reviewed_by[1] == HUMAN)
+check("case1 overall purity from human row",  r_r$purity[1] == "0.77")
 
 ## ---- case 2: human best A, autoQC best A -> same fit, different purity source ----
 d <- make_sample(c("default", "alt_dipLogR_-0.2"), list(
   manifest_row(".", "reviewed_best_fit", "default", HUMAN, "2026-01-02 10:00:00", reviewer_set_purity = "0.66"),
   manifest_row(".", "auto_qc_best_fit", "default", AUTOQC, "2026-01-03 10:00:00")))
-r_a <- run_policy(d, "autoqc"); r_r <- run_policy(d, "ruleset")
+r_a <- run_policy(d, "autoqc"); r_r <- run_policy(d, "overall")
 check("case2 same fit both policies", r_a$fit_name[1] == "default" && r_r$fit_name[1] == "default")
 check("case2 autoqc purity NOT borrowed from human", r_a$purity[1] != "0.66")
-check("case2 ruleset purity from human row",         r_r$purity[1] == "0.66")
+check("case2 overall purity from human row",         r_r$purity[1] == "0.66")
 check("case2 provenance differs", r_a$reviewed_by[1] == AUTOQC && r_r$reviewed_by[1] == HUMAN)
 
 ## ---- case 3: human no fit, autoQC best A -> both A ----
 d <- make_sample(c("default", "alt_dipLogR_-0.2"), list(
   manifest_row(".", "reviewed_no_fit", "Not selected", HUMAN, "2026-01-02 10:00:00"),
   manifest_row(".", "auto_qc_best_fit", "alt_dipLogR_-0.2", AUTOQC, "2026-01-03 10:00:00")))
-r_a <- run_policy(d, "autoqc"); r_r <- run_policy(d, "ruleset")
+r_a <- run_policy(d, "autoqc"); r_r <- run_policy(d, "overall")
 check("case3 both policies pick autoQC's fit",
       r_a$fit_name[1] == "alt_dipLogR_-0.2" && r_r$fit_name[1] == "alt_dipLogR_-0.2")
 
-## ---- case 4: human best A, autoQC no fit -> autoqc: default+NA fields, ruleset: A ----
+## ---- case 4: human best A, autoQC no fit -> autoqc: default+NA fields, overall: A ----
 d <- make_sample(c("default", "alt_dipLogR_-0.2"), list(
   manifest_row(".", "reviewed_best_fit", "alt_dipLogR_-0.2", HUMAN, "2026-01-02 10:00:00", reviewer_set_purity = "0.55"),
   manifest_row(".", "auto_qc_no_fit", "Not selected", AUTOQC, "2026-01-03 10:00:00")))
-r_a <- run_policy(d, "autoqc"); r_r <- run_policy(d, "ruleset")
+r_a <- run_policy(d, "autoqc"); r_r <- run_policy(d, "overall")
 check("case4 autoqc falls back to default",   r_a$fit_name[1] == "default")
 check("case4 autoqc review fields all NA",    is.na(r_a$reviewed_by[1]) && is.na(r_a$review_status[1]) && is.na(r_a$reviewer_set_purity[1]))
 check("case4 autoqc purity NOT human's 0.55", is.na(r_a$purity[1]) || r_a$purity[1] != "0.55")
-check("case4 ruleset picks human's fit",      r_r$fit_name[1] == "alt_dipLogR_-0.2")
+check("case4 overall picks human's fit",      r_r$fit_name[1] == "alt_dipLogR_-0.2")
 
-## ---- case 5: human acceptable A, autoQC no fit -> autoqc: default, ruleset: A (tier 3) ----
+## ---- case 5: human acceptable A, autoQC no fit -> autoqc: default, overall: A (tier 3) ----
 d <- make_sample(c("default", "alt_dipLogR_-0.2"), list(
   manifest_row(".", "reviewed_acceptable_fit", "alt_dipLogR_-0.2", HUMAN, "2026-01-02 10:00:00"),
   manifest_row(".", "auto_qc_no_fit", "Not selected", AUTOQC, "2026-01-03 10:00:00")))
-r_a <- run_policy(d, "autoqc"); r_r <- run_policy(d, "ruleset")
+r_a <- run_policy(d, "autoqc"); r_r <- run_policy(d, "overall")
 check("case5 autoqc falls back to default",  r_a$fit_name[1] == "default")
-check("case5 ruleset tier3 acceptable fit",  r_r$fit_name[1] == "alt_dipLogR_-0.2")
+check("case5 overall tier3 acceptable fit",  r_r$fit_name[1] == "alt_dipLogR_-0.2")
 
 ## ---- case 5b: two acceptable fits -> most recent date_reviewed wins tier 3 ----
 d <- make_sample(c("default", "alt_dipLogR_-0.2", "alt_dipLogR_-0.4"), list(
   manifest_row(".", "reviewed_acceptable_fit", "alt_dipLogR_-0.4", HUMAN,  "2026-01-01 10:00:00"),
   manifest_row(".", "reviewed_acceptable_fit", "alt_dipLogR_-0.2", HUMAN2, "2026-01-05 10:00:00")))
-r_r <- run_policy(d, "ruleset")
+r_r <- run_policy(d, "overall")
 check("case5b tier3 most recent acceptable wins", r_r$fit_name[1] == "alt_dipLogR_-0.2")
 
 ## ---- case 6: nobody reviewed, autoQC best A -> both A ----
 d <- make_sample(c("default", "alt_dipLogR_-0.2"), list(
   not_reviewed(".", "default"),
   manifest_row(".", "auto_qc_best_fit", "alt_dipLogR_-0.2", AUTOQC, "2026-01-03 10:00:00")))
-r_a <- run_policy(d, "autoqc"); r_r <- run_policy(d, "ruleset")
+r_a <- run_policy(d, "autoqc"); r_r <- run_policy(d, "overall")
 check("case6 both pick autoQC's fit",
       r_a$fit_name[1] == "alt_dipLogR_-0.2" && r_r$fit_name[1] == "alt_dipLogR_-0.2")
 
@@ -155,25 +155,202 @@ check("case6 both pick autoQC's fit",
 d <- make_sample(c("default", "alt_dipLogR_-0.2"), list(
   not_reviewed(".", "default"),
   manifest_row(".", "auto_qc_no_fit", "Not selected", AUTOQC, "2026-01-03 10:00:00")))
-r_a <- run_policy(d, "autoqc"); r_r <- run_policy(d, "ruleset")
+r_a <- run_policy(d, "autoqc"); r_r <- run_policy(d, "overall")
 check("case7 both fall to default", r_a$fit_name[1] == "default" && r_r$fit_name[1] == "default")
-check("case7 ruleset review fields NA", is.na(r_r$reviewed_by[1]))
+check("case7 overall review fields NA", is.na(r_r$reviewed_by[1]))
 
 ## ---- case 8: verdict on an ultra fit is never selectable ----
 d <- make_sample(c("default", "default/ultra"), list(
   not_reviewed(".", "default"),
   manifest_row(".", "reviewed_best_fit", "default/ultra", HUMAN, "2026-01-02 10:00:00")))
-r_r <- run_policy(d, "ruleset")
+r_r <- run_policy(d, "overall")
 check("case8 ultra never selectable -> default", r_r$fit_name[1] == "default")
 
 ## ---- case 9: explicit fit_to_use -> uniform frame + review join applied ----
 d <- make_sample(c("default", "alt_dipLogR_-0.2"), list(
   manifest_row(".", "reviewed_best_fit", "alt_dipLogR_-0.2", HUMAN, "2026-01-02 10:00:00", reviewer_set_purity = "0.88"),
   manifest_row(".", "auto_qc_best_fit", "default", AUTOQC, "2026-01-03 10:00:00")))
-r_x <- run_policy(d, "ruleset", fit_to_use = "alt_dipLogR_-0.2")
+r_x <- run_policy(d, "overall", fit_to_use = "alt_dipLogR_-0.2")
 check("case9 explicit fit honored",         r_x$fit_name[1] == "alt_dipLogR_-0.2")
 check("case9 review join applied (purity)", r_x$purity[1] == "0.88")
 check("case9 uniform frame has purity col", "purity" %in% names(r_x))
+
+## ---- deprecated 'ruleset' alias still resolves to 'overall' ----
+d <- make_sample(c("default", "alt_dipLogR_-0.2"), list(
+  manifest_row(".", "reviewed_best_fit", "alt_dipLogR_-0.2", HUMAN, "2026-01-02 10:00:00"),
+  manifest_row(".", "auto_qc_best_fit", "default", AUTOQC, "2026-01-03 10:00:00")))
+check("alias ruleset == overall", run_policy(d, "ruleset")$fit_name[1] == "alt_dipLogR_-0.2")
+check("unknown policy rejected", inherits(try(run_policy(d, "bogus"), silent = TRUE), "try-error"))
+
+## ---- human policy ----
+# h1: human best A, autoQC best B -> human: A with human's purity
+d <- make_sample(c("default", "alt_dipLogR_-0.2"), list(
+  manifest_row(".", "reviewed_best_fit", "alt_dipLogR_-0.2", HUMAN, "2026-01-02 10:00:00", reviewer_set_purity = "0.77"),
+  manifest_row(".", "auto_qc_best_fit", "default", AUTOQC, "2026-01-03 10:00:00", reviewer_set_purity = "0.31")))
+r_h <- run_policy(d, "human")
+check("h1 human picks human's fit",     r_h$fit_name[1] == "alt_dipLogR_-0.2")
+check("h1 human purity from human row", r_h$purity[1] == 0.77)
+
+# h2: human no fit, autoQC best A -> human: default, NA fields, no autoQC purity
+d <- make_sample(c("default", "alt_dipLogR_-0.2"), list(
+  manifest_row(".", "reviewed_no_fit", "Not selected", HUMAN, "2026-01-02 10:00:00"),
+  manifest_row(".", "auto_qc_best_fit", "alt_dipLogR_-0.2", AUTOQC, "2026-01-03 10:00:00", reviewer_set_purity = "0.31")))
+r_h <- run_policy(d, "human")
+check("h2 human ignores autoQC -> default", r_h$fit_name[1] == "default")
+check("h2 human review fields NA",          is.na(r_h$reviewed_by[1]) && is.na(r_h$reviewer_set_purity[1]))
+check("h2 human purity is FACETS hisens",   r_h$purity[1] == 0.4)
+
+# h3: human acceptable A beats autoQC best B under human
+d <- make_sample(c("default", "alt_dipLogR_-0.2"), list(
+  manifest_row(".", "reviewed_acceptable_fit", "alt_dipLogR_-0.2", HUMAN, "2026-01-02 10:00:00"),
+  manifest_row(".", "auto_qc_best_fit", "default", AUTOQC, "2026-01-03 10:00:00")))
+check("h3 human tier2 acceptable fit", run_policy(d, "human")$fit_name[1] == "alt_dipLogR_-0.2")
+
+# h4: human best beats a newer human acceptable
+d <- make_sample(c("default", "alt_dipLogR_-0.2", "alt_dipLogR_-0.4"), list(
+  manifest_row(".", "reviewed_best_fit", "alt_dipLogR_-0.4", HUMAN, "2026-01-01 10:00:00"),
+  manifest_row(".", "reviewed_acceptable_fit", "alt_dipLogR_-0.2", HUMAN2, "2026-01-05 10:00:00")))
+check("h4 human best over newer acceptable", run_policy(d, "human")$fit_name[1] == "alt_dipLogR_-0.4")
+
+# h5: fit_to_use joins only the policy's writers
+d <- make_sample(c("default"), list(
+  manifest_row(".", "reviewed_best_fit", "default", HUMAN, "2026-01-02 10:00:00", reviewer_set_purity = "0.88"),
+  manifest_row(".", "auto_qc_best_fit", "default", AUTOQC, "2026-01-03 10:00:00", reviewer_set_purity = "0.22")))
+check("h5 fit_to_use autoqc never borrows human purity",
+      run_policy(d, "autoqc", fit_to_use = "default")$purity[1] == 0.22)
+check("h5 fit_to_use human never borrows autoQC purity",
+      run_policy(d, "human", fit_to_use = "default")$purity[1] == 0.88)
+
+## ---- reviewer_set_purity coercion ----
+# A stray '30%' elsewhere in the column makes fread read it as text; the
+# numeric override on the selected row must still apply.
+d <- make_sample(c("default", "alt_dipLogR_-0.2"), list(
+  manifest_row(".", "reviewed_best_fit", "default", HUMAN, "2026-01-02 10:00:00", reviewer_set_purity = "0.45"),
+  manifest_row(".", "reviewed_acceptable_fit", "alt_dipLogR_-0.2", HUMAN2, "2026-01-01 10:00:00", reviewer_set_purity = "30%")))
+r_r <- run_policy(d, "overall")
+check("coerce: text-typed column still applies 0.45", is.numeric(r_r$purity) && r_r$purity[1] == 0.45)
+
+d <- make_sample(c("default"), list(
+  manifest_row(".", "reviewed_best_fit", "default", HUMAN, "2026-01-02 10:00:00", reviewer_set_purity = "30%")))
+w <- NULL
+r_r <- withCallingHandlers(
+  compile_cohort_annotations_2n(
+    data.frame(sample_id = "T_SYNTH_N_SYNTH", sample_path = d, fit_to_use = NA, stringsAsFactors = FALSE),
+    file.path(tempfile("out2n_")), ncores = 1, policy = "overall"),
+  warning = function(cnd) { w <<- c(w, conditionMessage(cnd)); invokeRestart("muffleWarning") })
+check("coerce: junk purity ignored -> FACETS hisens", r_r$purity[1] == 0.4)
+check("coerce: junk purity warned", any(grepl("non-numeric reviewer_set_purity '30%'", w, fixed = TRUE)))
+
+## ---- policy-aware CCF MAFs ----
+# Stubs: re-annotation stamps the purity and cncf it was given; the Rdata
+# purity read returns an unrounded value distinct from facets_qc.txt's 0.4.
+ccf_calls <- 0
+ccf_annotate_2n <- function(maf, cncf_txt_file, purity) {
+  ccf_calls <<- ccf_calls + 1
+  m <- data.table::copy(data.table::as.data.table(maf))
+  m$purity <- purity
+  m$ccf_expected_copies <- 0.5
+  m
+}
+facets_run_purity_2n <- function(pfx, use_only_purity_run) if (use_only_purity_run) 0.5123 else 0.4123
+
+SID <- "T_SYNTH_N_SYNTH"
+src_maf <- function() data.frame(Hugo_Symbol = c("GENE1", "GENE2"), Tumor_Sample_Barcode = "T_SYNTH",
+                                 stringsAsFactors = FALSE)
+
+# per-fit CCF MAF as generate_genomic_annotations_2n would have written it
+write_fit_ccf <- function(d, fit, purity, rsp = NA, run = "hisens", nonsignedout = FALSE) {
+  pfx <- file.path(d, fit, SID)
+  m <- src_maf()
+  m$purity <- purity
+  m$ccf_expected_copies <- 0.9
+  m$facets_fit <- file.path(d, fit)
+  m$facets_suite_qc <- TRUE
+  m$reviewer_set_purity <- rsp
+  m$use_only_purity_run <- run == "purity"
+  m$use_edited_cncf <- FALSE
+  m$cncf_file_used <- paste0(pfx, "_", run, ".cncf.txt")
+  f <- paste0(pfx, if (nonsignedout) ".nonsignedout.ccf.maf" else ".ccf.maf")
+  write.table(m, f, quote = FALSE, row.names = FALSE, sep = "\t")
+}
+
+ccf_fixture <- function(manifest_rows, with_source_maf = TRUE) {
+  d <- make_sample(c("default"), manifest_rows)
+  for (run in c("hisens", "purity")) file.create(file.path(d, "default", paste0(SID, "_", run, ".cncf.txt")))
+  if (with_source_maf) {
+    write.table(src_maf(), file.path(d, paste0(SID, ".maf")), quote = FALSE, row.names = FALSE, sep = "\t")
+    write.table(src_maf(), file.path(d, paste0(SID, ".nonsignedout.maf")), quote = FALSE, row.names = FALSE, sep = "\t")
+  }
+  d
+}
+
+run_ccf <- function(d, policy) {
+  out_prefix <- file.path(tempfile("out2n_"))
+  res <- suppressWarnings(compile_cohort_annotations_2n(
+    data.frame(sample_id = SID, sample_path = d, fit_to_use = NA, stringsAsFactors = FALSE),
+    out_prefix, ncores = 1, policy = policy))
+  list(res = res,
+       maf = fread(paste0(out_prefix, ".ccf.maf")),
+       nso = tryCatch(fread(paste0(out_prefix, ".nonsignedout.ccf.maf")), error = function(e) NULL))
+}
+
+# c1: human set 0.77 AFTER annotation (MAF still has FACETS purity) -> re-annotated
+d <- ccf_fixture(list(
+  manifest_row(".", "reviewed_best_fit", "default", HUMAN, "2026-01-02 10:00:00", reviewer_set_purity = "0.77")))
+write_fit_ccf(d, "default", purity = 0.38768134848043)
+write_fit_ccf(d, "default", purity = 0.38768134848043, nonsignedout = TRUE)
+ccf_calls <- 0; o <- run_ccf(d, "overall")
+check("c1 stale MAF re-annotated with reviewer purity", all(o$maf$purity == 0.77) && all(o$maf$ccf_expected_copies == 0.5))
+check("c1 MAF stamped with selection",       all(o$maf$reviewer_set_purity == 0.77))
+check("c1 nonsignedout re-annotated too",    all(o$nso$purity == 0.77))
+check("c1 cohort.txt ccf_status",            o$res$ccf_status[1] == "reannotated" && o$res$ccf_nonsignedout_status[1] == "reannotated")
+check("c1 MAF purity == cohort purity",      o$maf$purity[1] == o$res$purity[1])
+check("c1 per-fit file on disk untouched",   fread(file.path(d, "default", paste0(SID, ".ccf.maf")))$purity[1] == 0.38768134848043)
+check("c1 trailing columns keep GGA order",
+      identical(tail(names(o$maf), 6), c("facets_fit", "facets_suite_qc", "reviewer_set_purity",
+                                         "use_only_purity_run", "use_edited_cncf", "cncf_file_used")))
+
+# c2: MAF already annotated with the selected purity -> untouched
+write_fit_ccf(d, "default", purity = 0.77, rsp = 0.77)
+write_fit_ccf(d, "default", purity = 0.77, rsp = 0.77, nonsignedout = TRUE)
+ccf_calls <- 0; o <- run_ccf(d, "overall")
+check("c2 up-to-date MAF not re-annotated", ccf_calls == 0 && o$res$ccf_status[1] == "as_annotated")
+check("c2 per-fit values carried through",  all(o$maf$ccf_expected_copies == 0.9))
+
+# c3: autoqc cohort over a MAF annotated with the human's 0.77 -> back to unrounded FACETS purity
+o <- run_ccf(d, "autoqc")
+check("c3 autoqc drops human purity from MAF", all(o$maf$purity == 0.4123) && all(is.na(o$maf$reviewer_set_purity)))
+check("c3 autoqc cohort status reannotated",   o$res$ccf_status[1] == "reannotated")
+
+# c4: no reviewer purity anywhere, MAF unrounded vs qc's rounded 0.4 -> NOT stale
+d <- ccf_fixture(list(not_reviewed(".", "default")))
+write_fit_ccf(d, "default", purity = 0.38768134848043)
+ccf_calls <- 0; o <- run_ccf(d, "overall")
+check("c4 rounding difference alone is not stale", ccf_calls == 0 && o$maf$purity[1] == 0.38768134848043)
+
+# c5: use_only_purity_run selected, MAF built from hisens cncf -> re-annotated from purity run
+d <- ccf_fixture(list(
+  manifest_row(".", "reviewed_best_fit", "default", HUMAN, "2026-01-02 10:00:00", use_only_purity_run = TRUE)))
+write_fit_ccf(d, "default", purity = 0.38768134848043)
+o <- run_ccf(d, "overall")
+check("c5 purity-run switch re-annotates", all(o$maf$purity == 0.5123) &&
+        grepl("_purity.cncf.txt$", o$maf$cncf_file_used[1]) && isTRUE(o$maf$use_only_purity_run[1]))
+
+# c6: override stamped but never applied (text-typed column at annotation time)
+d <- ccf_fixture(list(
+  manifest_row(".", "reviewed_best_fit", "default", HUMAN, "2026-01-02 10:00:00", reviewer_set_purity = "0.3")))
+write_fit_ccf(d, "default", purity = 0.38768134848043, rsp = 0.3)
+o <- run_ccf(d, "overall")
+check("c6 stamped-but-unapplied override re-annotated", all(abs(o$maf$purity - 0.3) < 1e-9))  # fread: "0.3" -> 0.30000000000000004
+
+# c7: re-annotation needed but the sample MAF is gone -> kept as written, flagged
+d <- ccf_fixture(list(
+  manifest_row(".", "reviewed_best_fit", "default", HUMAN, "2026-01-02 10:00:00", reviewer_set_purity = "0.77")),
+  with_source_maf = FALSE)
+write_fit_ccf(d, "default", purity = 0.38768134848043)
+o <- run_ccf(d, "overall")
+check("c7 unrepairable flagged stale_unrepaired", o$res$ccf_status[1] == "stale_unrepaired" &&
+        o$maf$purity[1] == 0.38768134848043 && nrow(o$maf) == 2)
 
 ## ---- rule 13: update_best_fit_status_2n ----
 d <- make_sample(c("default", "alt_dipLogR_-0.2"), list(

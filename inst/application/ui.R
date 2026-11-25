@@ -39,6 +39,62 @@ ui <-
         background-color: rgba(255, 0, 0, 0.0);  /* add some color here to see the overlay for debugging */
         cursor: crosshair;
     }
+
+    /* Review Fits: collapsible left control panel. Flex (not Bootstrap floats)
+       so the two widths can animate; below 768px the columns stack as before. */
+    #fp-review-toggle {
+        position: absolute; left: -11px; top: 4px; z-index: 30;
+        width: 20px; height: 46px; padding: 0; line-height: 1;
+        border: 1px solid #c9c9c9; border-radius: 4px; background: #f5f5f5; color: #555;
+        cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.12);
+    }
+    #fp-review-toggle:hover, #fp-review-toggle:focus { background: #e6e6e6; color: #000; outline: none; }
+    #fp-review-toggle .fp-review-chevron {
+        display: inline-block; font-size: 20px; margin-top: -3px;
+        transition: transform .28s ease;
+    }
+    #fp-review-row.fp-collapsed #fp-review-toggle { left: 2px; }
+    #fp-review-row.fp-collapsed .fp-review-chevron { transform: rotate(180deg); }
+    @media (min-width: 768px) {
+        #fp-review-row { display: flex; flex-wrap: nowrap; align-items: flex-start; }
+        #fp-review-row::before, #fp-review-row::after { display: none; }
+        #fp-review-side {
+            float: none; flex: 0 0 25%; width: 25%; max-width: 25%;
+            transition: flex-basis .28s ease, max-width .28s ease, width .28s ease,
+                        padding .28s ease, opacity .2s ease;
+        }
+        #fp-review-main {
+            float: none; flex: 1 1 0; width: auto; min-width: 0; position: relative;
+        }
+        #fp-review-row.fp-animating #fp-review-side,
+        #fp-review-row.fp-collapsed #fp-review-side { overflow: hidden; }
+        #fp-review-row.fp-collapsed #fp-review-side {
+            flex-basis: 0; width: 0; max-width: 0; padding-left: 0; padding-right: 0; opacity: 0;
+        }
+        #fp-review-row.fp-collapsed #fp-review-main { padding-left: 26px; }
+    }
+    @media (max-width: 767px) { #fp-review-toggle { display: none; } }
+    @media (prefers-reduced-motion: reduce) {
+        #fp-review-side, #fp-review-toggle .fp-review-chevron { transition: none; }
+    }
+  ")),
+   tags$script(HTML("
+    // Review Fits: collapse / expand the left control panel.
+    $(document).on('click', '#fp-review-toggle', function() {
+        var row = $('#fp-review-row'), side = $('#fp-review-side'), kids = side.children();
+        var collapsing = !row.hasClass('fp-collapsed');
+        // Pin the content width so it slides out of view instead of re-wrapping
+        // while the column narrows.
+        if (collapsing) { kids.css({width: side.width() + 'px', minWidth: side.width() + 'px'}); }
+        row.addClass('fp-animating').toggleClass('fp-collapsed', collapsing);
+        $(this).attr({'title': collapsing ? 'Show panel' : 'Hide panel', 'aria-expanded': String(!collapsing)});
+        setTimeout(function() {
+            row.removeClass('fp-animating');
+            if (!collapsing) { kids.css({width: '', minWidth: ''}); }
+            // Let plots, tables and the PNG overlay re-fit the new width.
+            $(window).trigger('resize');
+        }, 320);
+    });
   ")),
    tags$script(HTML("
     $(document).on('shiny:connected', function() {
@@ -378,6 +434,7 @@ ui <-
                                        choices = character(0), width = "100%"))
                      ),
                      h5("Accepts short format (Eg: P-0009137-T01-IM5) or long format (Eg: P-0009137-T01-IM5_P-0009137-N01-IM5)."),
+                     h5("Whole Exome: a CMO id in any form (patient, sample, or TUMOR__NORMAL pair), or a DMP patient / sample id to load its exome samples."),
                      textAreaInput("textAreaInput_impactSamplesInput", label = NULL, value = "", rows = 4),
                      actionButton("button_impactSamplesInput", "Add to Load Manifest", class = "btn-primary")
                    )
@@ -412,7 +469,9 @@ ui <-
       tabPanel("Review Fits",
                value="tabPanel_reviewFits",
                fluidRow(
+                 id = "fp-review-row",
                  column(3,
+                        id = "fp-review-side",
                         wellPanel(
                           h4(strong("Select Sample:")),
                           selectInput(inputId = "selectInput_selectSample", label = NULL,
@@ -471,6 +530,8 @@ ui <-
                           actionButton("button_copyClipPath", "Copy path to clipboard.",
                                        icon = icon("clipboard"),
                                        style = "height:28px;font-size:8pt;vertical-align: middle; color:darkblue"),
+                          # VM: the same specimen in the other repositories, when any.
+                          uiOutput("ui_associatedSamples"),
                           h5(em('run parameters')),
                           verbatimTextOutput("verbatimTextOutput_runParams", placeholder = TRUE),
 
@@ -563,6 +624,12 @@ ui <-
                         )
 
                         ,
+                        shinyjs::hidden(
+                          div(id = "div_readOnlyRepoNote", class = "alert alert-warning",
+                              style = "font-size:9pt;",
+                              strong("Read-only repository."),
+                              " Refits and reviews are disabled for this sample.")
+                        ),
                         wellPanel(
                           id = "fitPanel",
                           h4(strong("Generate Refits:")),
@@ -634,6 +701,13 @@ ui <-
 
                  ),
                  column(9,
+                        id = "fp-review-main",
+                        # Slides the left control panel away / back (see the
+                        # fp-review-* styles and script in the page head).
+                        tags$button(id = "fp-review-toggle", type = "button",
+                                    title = "Hide panel", `aria-expanded` = "true",
+                                    `aria-controls` = "fp-review-side",
+                                    tags$span(class = "fp-review-chevron", HTML("&#8249;"))),
                         mainPanel(
                           tabsetPanel(
                             id="reviewTabsetPanel",
@@ -842,7 +916,13 @@ ui <-
                                        h4(strong("Review History:")),
                                        DT::dataTableOutput("datatable_reviewHistory")
                                      ),
+                                     shinyjs::hidden(
+                                       div(id = "div_readOnlyRepoNote_review", class = "alert alert-warning",
+                                           strong("Read-only repository."),
+                                           " Reviews cannot be added to this sample.")
+                                     ),
                                      wellPanel(
+                                       id = "wellPanel_addReview",
                                        h4(strong("Add Manual Review:")),
                                        radioButtons("radioButtons_reviewStatus", label=NULL,
                                                           c("Not Reviewed" = "not_reviewed",

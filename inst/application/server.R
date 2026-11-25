@@ -113,7 +113,16 @@ init_fp_paths <- function() {
     options("fp.default_repo_paths" = opts_repo)
     # The "Add samples by DMP-ID" repository dropdown; global.config may
     # override any base with repo_base_<key> = /path.
-    options("fp.vm_repositories" = vm_repository_registry(if (is.list(cfg)) cfg else list()))
+    reg <- vm_repository_registry(if (is.list(cfg)) cfg else list())
+    options("fp.vm_repositories" = reg)
+    # Repositories where users may not refit, review or edit (see is_read_only_path()).
+    options("fp.read_only_bases" = reg$base[reg$read_only])
+    # CMO <-> DMP id table for Whole Exome samples. Maintained outside this app
+    # and re-read whenever the file changes; global.config may repoint it with
+    # wes_sample_tracker = /path.
+    options("fp.wes_sample_tracker" =
+              (if (is.list(cfg)) cfg$wes_sample_tracker else NULL) %||%
+              "/data1/core006/ccs_pipelines/tempo/voyager/sample_tracker.txt")
 
     message("[FP] VM init: repo defaults = ", paste(
       sprintf("impact=%s, tcga=%s, tempo=%s", opts_repo$impact, opts_repo$tcga, opts_repo$tempo),
@@ -197,9 +206,11 @@ fp_deeplink_query <- function(url_search) {
 }
 
 # Repository key for a deep-linked sample: explicit ?repo= wins, otherwise the
-# panel in the tumor id (-IH -> impact_heme, else impact).
+# panel in the tumor id (-IH -> impact_heme, else impact); an id that is not a
+# DMP id at all (a CMO id) can only be Whole Exome.
 fp_deeplink_repo <- function(sample_id, repo = NULL) {
   if (!is.null(repo) && nzchar(repo)) return(tolower(trimws(repo)))
+  if (!grepl("^P-\\d{7}", sample_id)) return("wes")
   if (grepl("^[A-Z]-\\d{7}-T\\d{2}-IH", sample_id)) "impact_heme" else "impact"
 }
 
@@ -326,11 +337,6 @@ function(input, output, session) {
       deeplink_pending(FALSE)
       isolate({
         sample_id <- trimws(deeplink$sample)
-        pat <- dmp_id_patterns()
-        if (!grepl(pat$short, sample_id) && !grepl(pat$full, sample_id)) {
-          showNotification(paste("Invalid sample ID in link:", sample_id), type = "error", duration = NULL)
-          return()
-        }
         repo <- fp_deeplink_repo(sample_id, deeplink$repo)
         reg <- get_vm_repositories()
         entry <- reg[reg$key == repo, , drop = FALSE]
@@ -339,15 +345,16 @@ function(input, output, session) {
                                   paste(reg$key, collapse = ", ")), type = "error", duration = NULL)
           return()
         }
-        r <- resolve_repo_sample_path(sample_id, entry$base)
-        if (is.null(r$path)) {
+        r <- resolve_repo_entry_paths(sample_id, entry, load_wes_tracker())
+        if (length(r$paths) == 0) {
           showNotification(paste0(r$error, " (", entry$label, ")"), type = "error", duration = NULL)
           updateNavbarPage(session, "navbarPage1", selected = "tabPanel_sampleInput")
           return()
         }
         message(sprintf("[FP] session %s DEEPLINK sample=%s repo=%s", session$token, sample_id, repo))
-        updateTextAreaInput(session, "textAreaInput_samplesInput", value = r$path)
-        load_samples_text(r$path)
+        paths_text <- paste(r$paths, collapse = "\n")
+        updateTextAreaInput(session, "textAreaInput_samplesInput", value = paths_text)
+        load_samples_text(paths_text)
         if (isTRUE(values$samples_ready)) open_manifest_row(1)
       })
     })
@@ -2393,6 +2400,86 @@ function(input, output, session) {
 
   # Open one manifest row in Review Fits. Called on a row click and by the VM
   # deep-link autoload (?sample=...), which has no client-side row selection.
+  # ---- Read-only repositories (Whole Exome) --------------------------------
+  # Users cannot change a sample in a read-only repository: the refit, review
+  # and segment-edit handlers refuse before any other check, and the controls
+  # are hidden. Access level is irrelevant. The app's own load-time bookkeeping
+  # (facets_review.manifest / facets_qc.txt) is not affected.
+  read_only_block <- function(what) {
+    if (!is_read_only_path(values$loaded_path)) return(FALSE)
+    showNotification(paste0(what, " are disabled: ",
+                            repository_label_for_path(values$loaded_path, get_vm_repositories()),
+                            " samples are read-only."), type = "error", duration = 6)
+    TRUE
+  }
+  observe({
+    req(is_vm_mode())
+    ro <- is_read_only_path(values$loaded_path)
+    shinyjs::toggle("fitPanel", condition = !ro)
+    shinyjs::toggle("wellPanel_addReview", condition = !ro)
+    shinyjs::toggle("div_readOnlyRepoNote", condition = ro)
+    shinyjs::toggle("div_readOnlyRepoNote_review", condition = ro)
+  })
+
+  # ---- Associated samples ---------------------------------------------------
+  # The same specimen in the other repositories (IMPACT <-> 2n <-> Whole Exome).
+  associated_samples <- reactive({
+    req(is_vm_mode(), values$loaded_path)
+    tryCatch(
+      find_associated_samples(values$loaded_path, get_vm_repositories(), load_wes_tracker()),
+      error = function(e) {
+        message("[FP] associated-sample lookup failed: ", conditionMessage(e))
+        NULL
+      })
+  })
+  output$ui_associatedSamples <- renderUI({
+    a <- associated_samples()
+    if (is.null(a) || nrow(a) == 0) return(NULL)
+    several <- a$label %in% a$label[duplicated(a$label)]
+    div(style = "margin-top:8px;",
+        h5(strong("Associated Samples:"), style = "margin-bottom:2px;"),
+        div(style = "font-size:8pt; margin-bottom:4px; word-break:break-all;",
+            lapply(unique(a$sample_id), function(id) div(id))),
+        lapply(seq_len(nrow(a)), function(i) {
+          tags$button(
+            type = "button", class = "btn btn-default",
+            style = "height:28px;font-size:8pt;color:darkblue;display:block;margin-bottom:3px;",
+            onclick = sprintf("Shiny.setInputValue('assoc_open', %d, {priority: 'event'})", i),
+            icon("exchange-alt"),
+            paste0("View ", a$label[i], if (several[i]) paste0(" (", a$sample_id[i], ")") else ""))
+        }))
+  })
+  observeEvent(input$assoc_open, {
+    a <- associated_samples()
+    i <- suppressWarnings(as.integer(input$assoc_open))
+    if (is.null(a) || length(i) != 1 || is.na(i) || i < 1 || i > nrow(a)) return()
+    target <- sub('/+$', '', a$path[i])
+    # A 2n association is the pair dir; the manifest holds its class subtree.
+    row_of <- function() {
+      mm <- values$manifest_metadata
+      if (is.null(mm) || nrow(mm) == 0) return(NA_integer_)
+      p <- sub('/+$', '', mm$path)
+      which(p == target | startsWith(p, paste0(target, "/")))[1]
+    }
+    row <- row_of()
+    if (is.na(row)) {
+      current <- unlist(strsplit(input$textAreaInput_samplesInput %||% "", "[,\t \n]+"))
+      current <- current[nzchar(current)]
+      # The text area may be stale or empty (deep link); keep what is loaded.
+      loaded <- if (is.null(values$manifest_metadata)) character() else values$manifest_metadata$path
+      all_paths <- paste(unique(c(current, loaded, target)), collapse = "\n")
+      updateTextAreaInput(session, "textAreaInput_samplesInput", value = all_paths)
+      load_samples_text(all_paths)
+      row <- row_of()
+    }
+    if (is.na(row)) {
+      showNotification(paste("Could not load", a$sample_id[i]), type = "error", duration = 6)
+      return()
+    }
+    message(sprintf("[FP] session %s ASSOCIATED open %s (%s)", session$token, a$sample_id[i], a$repo_key[i]))
+    open_manifest_row(row)
+  })
+
   open_manifest_row <- function(row) {
 
     skipSampleChange(TRUE)
@@ -3900,6 +3987,7 @@ function(input, output, session) {
 
 
   observeEvent(input$button_addReview, {
+    if (read_only_block("Reviews")) return()
 
     if (!((session_data$password_personal == 1 && !input$storageType) || session_data$password_valid == 1)) {
       showNotification("You are not authorized to review this sample.", type = "error", duration = 5)
@@ -4386,6 +4474,7 @@ function(input, output, session) {
 
 
   observeEvent(input$button_saveChanges, {
+    if (read_only_block("Segment edits")) return()
     if(is.null(input$editableSegmentsTable$changes$changes)){
       return(NULL)
     }
@@ -5384,14 +5473,19 @@ function(input, output, session) {
         return(NULL)
       }
       found <- character()
+      tracker <- if (identical(entry$layout, "tempo")) load_wes_tracker() else NULL
       for (sample_id in trimws(sample_ids)) {
         if (!nzchar(sample_id)) next
-        r <- resolve_repo_sample_path(sample_id, entry$base)
+        r <- resolve_repo_entry_paths(sample_id, entry, tracker)
         if (!is.null(r$error)) {
           showNotification(r$error, type = "error", duration = 5)
           next
         }
-        found <- c(found, r$path)
+        if (length(r$paths) > 1) {
+          showNotification(paste0(sample_id, " matches ", length(r$paths), " ", entry$label,
+                                  " samples; all were added."), type = "message", duration = 6)
+        }
+        found <- c(found, r$paths)
       }
       if (length(found) > 0) {
         current_paths <- unlist(strsplit(input$textAreaInput_samplesInput, "[,\t \n]+"))
@@ -5638,6 +5732,7 @@ function(input, output, session) {
 
 
   observeEvent(input$button_refit, {
+    if (read_only_block("Refits")) return()
     # Refit parameters, with the wrapper's own defaults as a fallback.
     #
     # These fields are prefilled from the selected run's .out; when that .out

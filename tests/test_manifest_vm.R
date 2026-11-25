@@ -24,6 +24,7 @@ suppressWarnings(suppressMessages({
   source(file.path(repo, "R", "global.R"))
   source(file.path(repo, "R", "global_2n.R"))
   source(file.path(repo, "R", "repositories.R"))
+  source(file.path(repo, "R", "wes_mapping.R"))
 }))
 
 AUTOQC <- autoqc_reviewer_id_2n()
@@ -144,10 +145,13 @@ check("2n: acceptable-only is NOT a best fit under rule 13, but is reported as a
 ## ---------------------------------------------------------------------------
 
 reg <- vm_repository_registry()
-check("registry: the four IMPACT repositories, in order",
-      identical(reg$label, c("IMPACT Standard", "IMPACT 2n", "IMPACT-Heme Standard", "IMPACT-Heme 2n")))
-check("registry: bases end in the bucket root",
-      all(grepl("/facets/all$", reg$base)))
+check("registry: the four IMPACT repositories then Whole Exome, in order",
+      identical(reg$label, c("IMPACT Standard", "IMPACT 2n", "IMPACT-Heme Standard", "IMPACT-Heme 2n",
+                             "Whole Exome")))
+check("registry: IMPACT bases end in the bucket root",
+      all(grepl("/facets/all$", reg$base[reg$layout == "dmp_bucket"])))
+check("registry: only Whole Exome is read-only, and it uses the tempo layout",
+      identical(reg$key[reg$read_only], "wes") && identical(reg$key[reg$layout == "tempo"], "wes"))
 reg_ov <- vm_repository_registry(list(repo_base_impact_2n = "/elsewhere/2n/"))
 check("registry: a global.config override replaces one base (trailing slash dropped)",
       reg_ov$base[reg_ov$key == "impact_2n"] == "/elsewhere/2n" &&
@@ -156,6 +160,7 @@ check("registry: a global.config override replaces one base (trailing slash drop
 # A registry rooted at the fixture tree.
 treg <- reg
 treg$base <- file.path(root, sub("^/data1/core006/ccs/shared/resources/", "", reg$base))
+treg$base[treg$key == "wes"] <- file.path(root, "wes", "somatic")
 check("label: standard path -> IMPACT Standard",
       repository_label_for_path(s1, treg) == "IMPACT Standard")
 check("label: 2n class dir -> IMPACT 2n",
@@ -324,6 +329,129 @@ check("png: an unreadable file falls back to the classic size",
         all(is.na(png_dimensions(file.path(root, "nope.png")))))
 notpng <- tempfile(fileext = ".png"); writeLines("hello", notpng)
 check("png: a non-PNG is not parsed", all(is.na(png_dimensions(notpng))))
+
+## ---------------------------------------------------------------------------
+## Whole Exome: id expansion, the sample tracker, associations, read-only
+## ---------------------------------------------------------------------------
+
+wes_base <- treg$base[treg$key == "wes"]
+wes_pair <- function(tumor, normal, facets = TRUE) {
+  pair <- paste0(tumor, "__", normal)
+  d <- file.path(wes_base, pair, "facets", pair)
+  if (facets) dir.create(file.path(d, "facets0.5.14c100pc500"), recursive = TRUE)
+  else dir.create(file.path(wes_base, pair, "combined_mutations"), recursive = TRUE)
+  d
+}
+w1  <- wes_pair("C-000001-P001-d", "C-000001-N001-d")
+w1b <- wes_pair("C-000001-P002-d01", "C-000001-N001-d")
+w11 <- wes_pair("C-000001-P0011-d", "C-000001-N001-d")
+w2  <- wes_pair("C-000002-T001-d", "C-000002-N001-d")
+wnf <- wes_pair("C-000003-P001-d", "C-000003-N001-d", facets = FALSE)
+
+rp <- function(id, tracker = NULL) sort(resolve_wes_sample_paths(id, wes_base, tracker)$paths)
+check("wes: a patient-level CMO id returns every tumor of that patient",
+      identical(rp("C-000001"), sort(c(w1, w1b, w11))))
+check("wes: a sample id stops at the token boundary (P001 is not P0011)",
+      identical(rp("C-000001-P001"), w1))
+check("wes: the full tumor id resolves", identical(rp(" C-000001-P001-d "), w1))
+check("wes: a partial last token still matches (-d -> -d01)",
+      identical(rp("C-000001-P002-d"), w1b))
+check("wes: the TUMOR__NORMAL pair resolves directly",
+      identical(rp("C-000001-P001-d__C-000001-N001-d"), w1))
+check("wes: a pair without a facets dir is an error, not a path",
+      length(rp("C-000003")) == 0 &&
+        grepl("No matching folder", resolve_wes_sample_paths("C-000003", wes_base)$error))
+check("wes: an unknown id and a malformed id are errors",
+      !is.null(resolve_wes_sample_paths("C-999999", wes_base)$error) &&
+        grepl("Invalid format", resolve_wes_sample_paths("../etc", wes_base)$error))
+
+tracker_file <- file.path(root, "sample_tracker.txt")
+write_tracker <- function(rows) {
+  df <- do.call(rbind, lapply(rows, function(r)
+    data.frame(CMO_Sample_ID = r[1], Other = "x", tumorOrNormal = r[2],
+               investigatorSampleId = r[3], cmoSampleName = r[1], stringsAsFactors = FALSE)))
+  write.table(df, tracker_file, sep = "\t", row.names = FALSE, quote = FALSE)
+}
+write_tracker(list(c("C-000001-P001-d", "Tumor", "P-0000001-T01-WES"),
+                   c("C-000001-P002-d01", "Tumor", "P-0000001-T02-WES_2"),
+                   c("C-000001-N001-d", "Normal", "P-0000001-N01-WES"),
+                   c("C-000002-T001-d", "Tumor", "P-0000007-T01-WES,P-0000008-T03-WES"),
+                   c("C-000004-T001-d", "Tumor", "some_collaborator_id")))
+trk <- load_wes_tracker(tracker_file)
+check("tracker: DMP-shaped rows only, comma-joined ids split, T/N classified",
+      nrow(trk) == 5 && !("C-000004-T001-d" %in% trk$cmo_id) &&
+        sum(trk$cmo_id == "C-000002-T001-d") == 2 &&
+        trk$class[trk$cmo_id == "C-000001-N001-d"] == "normal" &&
+        trk$tnum[trk$dmp_id == "P-0000001-T02-WES_2"] == "T02")
+check("tracker: a missing file is an empty table",
+      nrow(suppressWarnings(load_wes_tracker(file.path(root, "nope.txt")))) == 0 &&
+        nrow(load_wes_tracker(NULL)) == 0)
+
+check("wes: a DMP sample id loads the exome of the same sample number",
+      identical(rp("P-0000001-T01-IM6", trk), w1) && identical(rp("P-0000001-T02", trk), w1b))
+check("wes: a DMP patient id loads every mapped exome tumor",
+      identical(rp("P-0000001", trk), sort(c(w1, w1b))))
+check("wes: an unmapped DMP id, and a DMP id with no tracker, are errors",
+      grepl("No Whole Exome sample is mapped", resolve_wes_sample_paths("P-0000001-T09-IM6", wes_base, trk)$error) &&
+        grepl("tracker is not available", resolve_wes_sample_paths("P-0000001-T01-IM6", wes_base, NULL)$error))
+check("dispatch: the registry layout picks the resolver",
+      identical(resolve_repo_entry_paths("C-000001-P001", treg[treg$key == "wes", ], trk)$paths, w1) &&
+        identical(resolve_repo_entry_paths("P-0000002-T01-IH4", treg[treg$key == "impact_heme", ])$paths,
+                  file.path(base, "P-00000", "P-0000002-T01-IH4_P-0000002-N01-IH4")))
+
+# The tracker is re-read when the file changes, and only then.
+write_tracker(list(c("C-000001-P001-d", "Tumor", "P-0000001-T05-WES")))
+Sys.setFileTime(tracker_file, Sys.time() + 60)
+check("tracker: a changed file is picked up without a restart",
+      identical(load_wes_tracker(tracker_file)$tnum, "T05"))
+writeLines("garbage with no header columns", tracker_file)
+Sys.setFileTime(tracker_file, Sys.time() + 120)
+check("tracker: an unreadable rewrite keeps the last good table",
+      identical(suppressWarnings(load_wes_tracker(tracker_file))$tnum, "T05"))
+
+# Associations: IMPACT <-> 2n by identical tumor id, anything <-> WES by patient + number.
+im_base <- treg$base[treg$key == "impact"]
+im_t1 <- file.path(im_base, "P-00000", "P-0000001-T01-IM6_P-0000001-N01-IM6")
+im_t3 <- file.path(im_base, "P-00000", "P-0000001-T03-IM6_P-0000001-N01-IM6")
+dir.create(im_t1, recursive = TRUE); dir.create(im_t3, recursive = TRUE)
+pair_a <- file.path(treg$base[treg$key == "impact_2n"], "P-00000", "P-0000001-T01-IM6_P-0000001-N01-IM6")
+dir.create(file.path(pair_a, "clinical"), recursive = TRUE)
+# (the loader fixture above left a P-0000001-T01-IM6 pair under the heme base)
+a_im <- find_associated_samples(im_t1, treg, trk)
+check("assoc: IMPACT sample -> its exome and the identical tumor id elsewhere",
+      setequal(a_im$repo_key, c("wes", "impact_2n", "impact_heme")) &&
+        a_im$path[a_im$repo_key == "wes"] == w1 && a_im$sample_id[a_im$repo_key == "wes"] == "C-000001-P001-d" &&
+        a_im$path[a_im$repo_key == "impact_2n"] == pair_a)
+im_p2 <- file.path(im_base, "P-00000", "P-0000002-T01-IM6_P-0000002-N01-IM6")
+dir.create(im_p2, recursive = TRUE)
+check("assoc: an IMPACT sample is not linked to a heme sample that only shares its number",
+      nrow(find_associated_samples(im_p2, treg, trk)) == 0)
+check("assoc: no exome with that sample number -> no Whole Exome row",
+      !("wes" %in% find_associated_samples(im_t3, treg, trk)$repo_key))
+a_w <- find_associated_samples(w1, treg, trk)
+check("assoc: exome -> every IMPACT-family repository holding that patient + number",
+      setequal(a_w$repo_key, c("impact", "impact_2n", "impact_heme")) &&
+        a_w$path[a_w$repo_key == "impact"] == im_t1 && a_w$path[a_w$repo_key == "impact_2n"] == pair_a &&
+        a_w$sample_id[a_w$repo_key == "impact"] == "P-0000001-T01-IM6")
+check("assoc: a 2n class dir still finds its copies",
+      "wes" %in% find_associated_samples(file.path(pair_a, "clinical"), treg, trk)$repo_key)
+check("assoc: an untracked exome, a path outside every repository, and no tracker give nothing",
+      nrow(find_associated_samples(w11, treg, trk)) == 0 &&
+        nrow(find_associated_samples(s3, treg, trk)) == 0 &&
+        !("wes" %in% find_associated_samples(im_t1, treg, NULL)$repo_key))
+
+# Read-only marks where users may not refit / review; it does not stop the
+# app's own manifest and qc bookkeeping.
+ro <- make_sample(w2, rows = rbind(row_of("reviewed_best_fit", "default", HUMAN, "2025-01-01 10:00:00")))
+check("read-only: off unless the option is set", !is_read_only_path(w2))
+options(fp.read_only_bases = wes_base)
+check("read-only: the base and everything under it, but not its neighbours",
+      is_read_only_path(w2) && is_read_only_path(paste0(wes_base, "//")) &&
+        !is_read_only_path(paste0(wes_base, "_other/x")) && !is_read_only_path(im_t1) &&
+        !is_read_only_path(NA))
+check("read-only: load-time bookkeeping can still write the manifest and qc file",
+      verify_access_to_write(w2) && nrow(load_reviews(basename(w2), w2)) == 1)
+options(fp.read_only_bases = NULL)
 
 cat("\n", n_pass, "passed,", n_fail, "failed\n")
 if (n_fail > 0) quit(status = 1)

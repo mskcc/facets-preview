@@ -144,7 +144,7 @@ No launcher change. Three things to know in `facetflow_dev`:
   still needs `python3` on `PATH` for the split (it already did). The queue and
   `refit_manager.nf` are unchanged; `FACETS_IRIS_*` gains the four 2n keys.
 - **Repository dropdown** on the Load Samples page (VM mode only) expands DMP ids
-  against one of four trees. Defaults are baked into the app; each can be
+  against one of the IMPACT trees (Whole Exome is described below). Defaults are baked into the app; each can be
   overridden in the shared `global.config` (`$FP_USER_BASE_WORKDIR/global.config`,
   the same file that carries `impact_repo_path`):
 
@@ -159,6 +159,33 @@ No launcher change. Three things to know in `facetflow_dev`:
   older loader suffixes with `/all/`). TCGA is deliberately not listed: its tree
   is `…/tcga/all3/<TCGA-XX>/<NORMAL>_<TUMOR>/` (normal first, no `facets/`) and
   needs its own bucket rule before it can be offered.
+- **Whole Exome repository** (VM mode only) is a fifth dropdown entry, over the
+  Tempo WES tree (`<base>/<TUMOR>__<NORMAL>/facets/<TUMOR>__<NORMAL>/`). It
+  accepts a CMO id in any form (patient, sample, or the full pair) and, through
+  the sample tracker, a DMP patient or sample id. Both paths can be overridden in
+  `global.config`:
+
+  ```
+  repo_base_wes      = /data1/core006/ccs_pipelines/tempo/wes_repo/Results/v2.1.x/cohort_level/MSKWESRP/somatic
+  wes_sample_tracker = /data1/core006/ccs_pipelines/tempo/voyager/sample_tracker.txt
+  ```
+
+  The tracker (the one `tempo2cbio` uses; columns `CMO_Sample_ID`,
+  `investigatorSampleId`, `tumorOrNormal`) is read from that path at run time and
+  re-read whenever its mtime changes, so a nightly update needs no rebuild and no
+  session restart. If it is missing, CMO ids still work; DMP ids and the WES
+  side of "Associated Samples" do not.
+- **Whole Exome takes no user changes.** `wes` is flagged `read_only` in the
+  registry (`R/repositories.R`): the refit, review and segment-edit handlers
+  refuse before any access check (so access level cannot bypass it) and the
+  controls are hidden. The app's own load-time bookkeeping is unchanged — a WES
+  sample with no `facets_review.manifest` still gets one written, and its
+  `*facets_qc.txt` refreshed, the first time it is loaded.
+- **Associated Samples** (Review Fits, under "Copy path to clipboard", VM mode
+  only) lists the same specimen in the other repositories and opens it on click.
+  Whole Exome is matched by DMP patient + sample number via the tracker
+  (`P-…-T01-IM6` ↔ the exome tracked as `P-…-T01-WES`); between IMPACT-family
+  repositories only the identical tumor id is linked.
 - **Samples Manifest columns** (VM mode only) now come partly from reading each
   sample's `facets_review.manifest` and `facets_qc.txt` at load time — for a 2n
   pair, both class subtrees. Read-only; no self-heal is triggered by the table.
